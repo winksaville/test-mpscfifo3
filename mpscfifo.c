@@ -26,6 +26,7 @@
 #define DELAY 0
 
 #include "mpscfifo.h"
+#include "mpscringbuff.h"
 #include "dpf.h"
 
 #include <sys/types.h>
@@ -51,6 +52,8 @@ MpscFifo_t *initMpscFifo(MpscFifo_t *pQ) {
   pQ->pTail = &pQ->cell;
   pQ->count = 0;
   pQ->msgs_processed = 0;
+  pQ->use_rb = true;
+  rb_init(&pQ->rb, 256);
   return pQ;
 }
 
@@ -59,6 +62,8 @@ MpscFifo_t *initMpscFifo(MpscFifo_t *pQ) {
  */
 uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
   uint64_t msgs_processed = pQ->msgs_processed;
+  msgs_processed += rb_deinit(&pQ->rb);
+  pQ->use_rb = false;
 #ifndef NDEBUG
   uint32_t count = pQ->count;
 #endif
@@ -68,6 +73,7 @@ uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
   pQ->pTail = NULL;
   pQ->count = 0;
   pQ->msgs_processed = 0;
+
   DPF(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
   return msgs_processed;
 }
@@ -76,63 +82,75 @@ uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
  * @see mpscifo.h
  */
 void add(MpscFifo_t *pQ, Msg_t *pMsg) {
+  if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
+    if (rb_add(&pQ->rb, pMsg)) {
+      return;
+    }
+    //printf("add: set use_rb=false\n");
+    __atomic_store_n(&pQ->use_rb, false, __ATOMIC_RELEASE);
+  }
   Cell_t* pCell = pMsg->pCell;
   pCell->pNext = NULL;
   pCell->pMsg = pMsg;
   Cell_t* pPrev = __atomic_exchange_n(&pQ->pHead, pCell, __ATOMIC_ACQ_REL);
   // rmv will stall spinning if preempted at this critical spot
-  __atomic_store_n(&pPrev->pNext, pCell, __ATOMIC_RELEASE); //SEQ_CST);
+  __atomic_store_n(&pPrev->pNext, pCell, __ATOMIC_RELEASE);
 }
 
 /**
  * @see mpscifo.h
  */
 Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
+  Msg_t* pMsg;
+
+  if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
+    pMsg = rb_rmv(&pQ->rb);
+    return pMsg;
+  }
   Cell_t* pTail = pQ->pTail;
   Cell_t* pNext = pTail->pNext;
   if (pNext != NULL) {
-    Msg_t* pMsg = pNext->pMsg;
+    pMsg = pNext->pMsg;
     pMsg->pCell = pTail;
     pQ->pTail = pNext;
     pQ->msgs_processed += 1;
-    return pMsg;
   } else {
-    return NULL;
+    pMsg = rb_rmv(&pQ->rb);
+    assert(pMsg != NULL);
+    pQ->use_rb = true;
   }
+  return pMsg;
 }
 
 /**
  * @see mpscifo.h
  */
 Msg_t *rmv(MpscFifo_t *pQ) {
+  Msg_t* pMsg;
+
+  if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
+    pMsg = rb_rmv(&pQ->rb);
+    return pMsg;
+  }
   Cell_t* pTail = pQ->pTail;
   Cell_t* pNext = pTail->pNext;
   if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
-    return NULL;
+    pMsg = rb_rmv(&pQ->rb);
+    //printf("add: set use_rb=true\n");
+    assert(pMsg != NULL);
+    __atomic_store_n(&pQ->use_rb, true, __ATOMIC_RELEASE);
+    return pMsg;
   } else {
     if (pNext == NULL) {
       while ((pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE)) == NULL) {
         sched_yield();
       }
     }
-    Msg_t* pMsg = pNext->pMsg;
+    pMsg = pNext->pMsg;
     pMsg->pCell = pTail;
     pQ->pTail = pNext;
     pQ->msgs_processed += 1;
     return pMsg;
-  }
-}
-
-/**
- * @see mpscifo.h
- */
-Msg_t *rmv_no_dbg_on_empty(MpscFifo_t *pQ) {
-  Cell_t* pTail = pQ->pTail;
-  Cell_t* pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE);
-  if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
-    return NULL;
-  } else {
-    return rmv(pQ);
   }
 }
 

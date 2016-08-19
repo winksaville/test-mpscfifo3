@@ -36,6 +36,7 @@ bool simple(void) {
 
   Cell_t cell1;
   Cell_t cell2;
+  Cell_t cell3;
 
   Msg_t msg1 = {
     .pCell = &cell1,
@@ -51,6 +52,13 @@ bool simple(void) {
     .arg2 = -2
   };
   
+  Msg_t msg3 = {
+    .pCell = &cell3,
+    .pPool = NULL,
+    .arg1 = 2,
+    .arg2 = -2
+  };
+
   printf(LDR "simple: init cmdFifo=%p\n", ldr(), &cmdFifo);
   initMpscFifo(&cmdFifo);
 
@@ -71,12 +79,14 @@ bool simple(void) {
     error |= true;
   }
   
-  printf(LDR "simple: add a message to empty cmdFifo=%p\n", ldr(), &cmdFifo);
+  printf(LDR "simple: add msg1 to empty cmdFifo=%p\n", ldr(), &cmdFifo);
   add(&cmdFifo, &msg1);
 
-  printf(LDR "simple: add a message to non-empty cmdFifo=%p\n", ldr(), &cmdFifo);
+  printf(LDR "simple: add msg2 to non-empty cmdFifo=%p\n", ldr(), &cmdFifo);
   add(&cmdFifo, &msg2);
 
+  printf(LDR "simple: add msg3 to non-empty cmdFifo=%p\n", ldr(), &cmdFifo);
+  add(&cmdFifo, &msg3);
 
   printf(LDR "simple: remove msg1 from cmdFifo=%p\n", ldr(), &cmdFifo);
   pMsg = rmv(&cmdFifo);
@@ -95,6 +105,16 @@ bool simple(void) {
     error |= true;
   } else if (pMsg != &msg2) {
     printf(LDR "simple: expected pMsg=%p == &msg2=%p\n", ldr(), pMsg, &msg2);
+    error |= true;
+  }
+
+  printf(LDR "simple: remove msg3 from cmdFifo=%p\n", ldr(), &cmdFifo);
+  pMsg = rmv(&cmdFifo);
+  if (pMsg == NULL) {
+    printf(LDR "simple: expected pMsg=%p != NULL\n", ldr(), pMsg);
+    error |= true;
+  } else if (pMsg != &msg3) {
+    printf(LDR "simple: expected pMsg=%p == &msg3=%p\n", ldr(), pMsg, &msg3);
     error |= true;
   }
   
@@ -120,6 +140,7 @@ bool perf(const uint64_t loops) {
 
   Cell_t cell1;
   Cell_t cell2;
+  Cell_t cell3;
 
   Msg_t msg1 = {
     .pCell = &cell1,
@@ -135,6 +156,13 @@ bool perf(const uint64_t loops) {
     .arg2 = -2
   };
   
+  Msg_t msg3 = {
+    .pCell = &cell3,
+    .pPool = NULL,
+    .arg1 = 2,
+    .arg2 = -2
+  };
+
   printf(LDR "perf: init cmdFifo=%p\n", ldr(), &cmdFifo);
   initMpscFifo(&cmdFifo);
 
@@ -163,16 +191,19 @@ bool perf(const uint64_t loops) {
 
   clock_gettime(CLOCK_REALTIME, &time_start);
   for (uint64_t i = 0; i < loops; i++) {
+    add(&cmdFifo, &msg3);
     add(&cmdFifo, &msg1);
+    rmv(&cmdFifo);
     rmv(&cmdFifo);
   }
   clock_gettime(CLOCK_REALTIME, &time_stop);
-  
+
+  uint64_t processed = loops * 2;
   processing_ns = diff_timespec_ns(&time_stop, &time_start);
   printf(LDR "perf: add_rmv from non-empty fifo  processing=%.3fs\n", ldr(), processing_ns / ns_flt);
-  ops_per_sec = (loops * ns_flt) / processing_ns;
+  ops_per_sec = (processed * ns_flt) / processing_ns;
   printf(LDR "perf: add rmv from non-empty fifo ops_per_sec=%.3f\n", ldr(), ops_per_sec);
-  ns_per_op = (float)processing_ns / (double)loops;
+  ns_per_op = (float)processing_ns / (double)processed;
   printf(LDR "perf: add rmv from non-empty fifo   ns_per_op=%.1fns\n", ldr(), ns_per_op);
   printf(LDR "perf:-error=%u\n\n", ldr(), error);
 

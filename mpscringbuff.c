@@ -8,7 +8,7 @@
  * to the head removed from the tail.
  */
 
-//#define NDEBUG
+#define NDEBUG
 
 #define _DEFAULT_SOURCE
 
@@ -40,7 +40,7 @@
 /**
  * @see mpscringbuff.h
  */
-MpscRingBuff_t* initMpscRingBuff(MpscRingBuff_t* pRb, uint32_t size) {
+MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
   DPF(LDR "initMpscRingBuff:+pRb=%p size=%d\n", ldr(), pRb, size);
   pRb->add_idx = 0;
   pRb->rmv_idx = 0;
@@ -68,7 +68,7 @@ MpscRingBuff_t* initMpscRingBuff(MpscRingBuff_t* pRb, uint32_t size) {
 /**
  * @see mpscringbuff.h
  */
-uint64_t deinitMpscRingBuff(MpscRingBuff_t* pRb) {
+uint64_t rb_deinit(MpscRingBuff_t* pRb) {
   DPF(LDR "deinitMpscRingBuff:+pRb=%p\n", ldr(), pRb);
   uint64_t msgs_processed = pRb->msgs_processed;
   free(pRb->ring_buffer);
@@ -86,7 +86,7 @@ uint64_t deinitMpscRingBuff(MpscRingBuff_t* pRb) {
 /**
  * @see mpscringbuff.h
  */
-bool rb_add_non_blocking(MpscRingBuff_t* pRb, Msg_t* pMsg) {
+bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
   Cell_t* cell;
   uint32_t pos = pRb->add_idx;
 

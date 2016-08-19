@@ -92,6 +92,10 @@ done:
 uint64_t MsgPool_deinit(MsgPool_t* pool) {
   DPF(LDR "MsgPool_deinit:+pool=%p msgs=%p\n", ldr(), pool, pool->msgs);
   uint64_t msgs_processed = 0;
+#if 1
+  msgs_processed += pool->fifo.msgs_processed;
+  msgs_processed += pool->fifo.rb.msgs_processed;
+#else
   if (pool->msgs != NULL) {
     // Empty the pool
     DPF(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u\n", ldr(), pool, pool->msg_count);
@@ -127,6 +131,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
     pool->msg_count = 0;
   }
   DPF(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu\n", ldr(), pool, msgs_processed);
+#endif
   return msgs_processed;
 }
 

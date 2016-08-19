@@ -237,8 +237,9 @@ done:
   DPF(LDR "client: param=%p done, flushing fifo\n", ldr(), p);
   uint32_t unprocessed = 0;
   while ((msg = RMV(&cp->cmdFifo)) != NULL) {
-    printf(LDR "client: param=%p ret msg=%p\n", ldr(), p, msg);
-    unprocessed += 1;
+    //printf(LDR "client: param=%p ret msg=%p\n", ldr(), p, msg);
+    //unprocessed += 1;
+    cp->msgs_processed += 1;
     ret_msg(msg);
   }
 

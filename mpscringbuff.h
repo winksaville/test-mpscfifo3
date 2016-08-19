@@ -50,7 +50,7 @@ extern uint64_t rb_deinit(MpscRingBuff_t *pQ);
  *
  * @return true if added return false if full
  */
-extern bool rb_add_non_blocking(MpscRingBuff_t* pRb, Msg_t* pMsg);
+extern bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg);
 
 /**
  * Remove a Msg_t from the ring buffer. This maybe used only by

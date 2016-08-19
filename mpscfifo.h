@@ -23,12 +23,10 @@
 #define COM_SAVILLE_MPSCFIFO_H
 
 #include "msg.h"
+#include "mpscringbuff.h"
 
+#include <stdbool.h>
 #include <stdint.h>
-
-typedef struct MpscFifo_t MpscFifo_t;
-typedef struct Msg_t Msg_t;
-
 
 typedef struct MpscFifo_t {
   Cell_t* pHead __attribute__(( aligned (64) ));
@@ -36,6 +34,8 @@ typedef struct MpscFifo_t {
   VOLATILE _Atomic(uint32_t) count;
   uint64_t msgs_processed;
   Cell_t cell;
+  bool use_rb;
+  MpscRingBuff_t rb;
 } MpscFifo_t;
 
 extern _Atomic(uint64_t) gTick;
@@ -76,14 +76,6 @@ extern Msg_t *rmv_non_stalling(MpscFifo_t *pQ);
  * finishing.
  */
 extern Msg_t *rmv(MpscFifo_t *pQ);
-
-/**
- * Remove a Msg_t from the Queue DO NOT PRINT DBG output if empty.
- * This maybe used only by a single thread and returns NULL if empty.
- * This may stall if a producer call add and was preempted before
- * finishing.
- */
-extern Msg_t *rmv_no_dbg_on_empty(MpscFifo_t *pQ);
 
 /**
  * Return the message to its pool.
