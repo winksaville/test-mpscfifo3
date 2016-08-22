@@ -27,12 +27,12 @@
 
 #include "mpscfifo.h"
 #include "mpscringbuff.h"
+#include "msg_pool.h"
 #include "dpf.h"
 
 #include <sys/types.h>
 #include <pthread.h>
 
-#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -45,15 +45,16 @@
  * @see mpscfifo.h
  */
 MpscFifo_t *initMpscFifo(MpscFifo_t *pQ) {
-  DPF(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
+  printf(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
   pQ->cell.pNext = NULL;
   pQ->cell.pMsg = NULL;
   pQ->pHead = &pQ->cell;
   pQ->pTail = &pQ->cell;
   pQ->count = 0;
   pQ->msgs_processed = 0;
-  pQ->use_rb = true;
-  rb_init(&pQ->rb, 256);
+  pQ->add_use_rb = true;
+  pQ->rmv_use_rb = true;
+  rb_init(&pQ->rb, 0x100);
   return pQ;
 }
 
@@ -63,10 +64,11 @@ MpscFifo_t *initMpscFifo(MpscFifo_t *pQ) {
 uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
   uint64_t msgs_processed = pQ->msgs_processed;
   msgs_processed += rb_deinit(&pQ->rb);
-  pQ->use_rb = false;
-#ifndef NDEBUG
+  pQ->add_use_rb = false;
+  pQ->rmv_use_rb = false;
+//#ifndef NDEBUG
   uint32_t count = pQ->count;
-#endif
+//#endif
   Cell_t *pStub = pQ->pHead;
   pStub->pNext = NULL;
   pQ->pHead = NULL;
@@ -74,7 +76,7 @@ uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
   pQ->count = 0;
   pQ->msgs_processed = 0;
 
-  DPF(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
+  printf(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
   return msgs_processed;
 }
 
@@ -82,12 +84,22 @@ uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
  * @see mpscifo.h
  */
 void add(MpscFifo_t *pQ, Msg_t *pMsg) {
-  if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
+#if 0
     if (rb_add(&pQ->rb, pMsg)) {
+      pQ->count += 1;
+      return;
+    } else {
       return;
     }
-    //printf("add: set use_rb=false\n");
-    __atomic_store_n(&pQ->use_rb, false, __ATOMIC_RELEASE);
+#else
+  if (__atomic_load_n((bool*)&pQ->add_use_rb, __ATOMIC_ACQUIRE)) {
+    if (rb_add(&pQ->rb, pMsg)) {
+      DPF(LDR "add: pQ=%p added pMsg=%p using rb_add\n", ldr(), pQ, pMsg);
+      pQ->count += 1;
+      return;
+    }
+    printf(LDR "add: pQ=%p set use_rb=false FULL add to fifo pMsg=%p\n", ldr(), pQ, pMsg);
+    __atomic_store_n((bool*)&pQ->add_use_rb, false, __ATOMIC_RELEASE);
   }
   Cell_t* pCell = pMsg->pCell;
   pCell->pNext = NULL;
@@ -95,8 +107,11 @@ void add(MpscFifo_t *pQ, Msg_t *pMsg) {
   Cell_t* pPrev = __atomic_exchange_n(&pQ->pHead, pCell, __ATOMIC_ACQ_REL);
   // rmv will stall spinning if preempted at this critical spot
   __atomic_store_n(&pPrev->pNext, pCell, __ATOMIC_RELEASE);
+  pQ->count += 1;
+#endif
 }
 
+#if 0
 /**
  * @see mpscifo.h
  */
@@ -105,6 +120,9 @@ Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
 
   if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
     pMsg = rb_rmv(&pQ->rb);
+    if (pMsg != NULL) {
+      pQ->count -= 1;
+    }
     return pMsg;
   }
   Cell_t* pTail = pQ->pTail;
@@ -113,33 +131,64 @@ Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
     pMsg = pNext->pMsg;
     pMsg->pCell = pTail;
     pQ->pTail = pNext;
-    pQ->msgs_processed += 1;
   } else {
     pMsg = rb_rmv(&pQ->rb);
-    assert(pMsg != NULL);
+    if (pMsg == NULL) {
+      CRASH();
+    }
     pQ->use_rb = true;
   }
+  if (pMsg != NULL) {
+    pQ->count -= 1;
+  }
+  pQ->msgs_processed += 1;
   return pMsg;
 }
+#endif
 
 /**
  * @see mpscifo.h
  */
 Msg_t *rmv(MpscFifo_t *pQ) {
+#if 0
+  return rb_rmv(&pQ->rb);
+#else
   Msg_t* pMsg;
-
-  if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
+  if (__atomic_load_n((bool*)&pQ->rmv_use_rb, __ATOMIC_ACQUIRE)) {
     pMsg = rb_rmv(&pQ->rb);
-    return pMsg;
+    if (pMsg != NULL) {
+      pQ->count -= 1;
+      DPF(LDR "rmv: pQ=%p 0.0 pMsg=%p\n", ldr(), pQ, pMsg);
+      return pMsg;
+    }
+    if (__atomic_load_n((bool*)&pQ->add_use_rb, __ATOMIC_ACQUIRE)) {
+      // Empty, but since its never been full we keep using rb
+      return NULL;
+    }
+    // Empty, and its was full so stop using rb
+    printf(LDR "rmv: pQ=%p 1.0 pMsg=%p\n", ldr(), pQ, pMsg);
+    __atomic_store_n((bool*)&pQ->rmv_use_rb, false, __ATOMIC_RELEASE);
   }
   Cell_t* pTail = pQ->pTail;
   Cell_t* pNext = pTail->pNext;
   if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
+    return NULL;
+#if 0
     pMsg = rb_rmv(&pQ->rb);
-    //printf("add: set use_rb=true\n");
-    assert(pMsg != NULL);
-    __atomic_store_n(&pQ->use_rb, true, __ATOMIC_RELEASE);
-    return pMsg;
+    //printf(LDR "add: set use_rb=true\n", ldr());
+    if (pMsg == NULL) {
+      //printf(LDR "rmv: 2.0 pMsg=%p\n", ldr(), pMsg);
+      //CRASH(); // 1
+      //printf(LDR "rmv: 2.1\n", ldr());
+      //__atomic_store_n(&pQ->use_rb, true, __ATOMIC_RELEASE);
+      //__atomic_store_n(&pQ->use_rb, true, __ATOMIC_RELEASE);
+      return pMsg;
+    } else {
+      pQ->count -= 1;
+      pQ->msgs_processed += 1;
+      return pMsg;
+    }
+#endif
   } else {
     if (pNext == NULL) {
       while ((pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE)) == NULL) {
@@ -149,9 +198,16 @@ Msg_t *rmv(MpscFifo_t *pQ) {
     pMsg = pNext->pMsg;
     pMsg->pCell = pTail;
     pQ->pTail = pNext;
+    if (pMsg == NULL) {
+      printf(LDR "rmv: pQ=%p 3.0\n", ldr(), pQ);
+      CRASH(); // 2
+      printf(LDR "rmv: pQ=%p 3.1\n", ldr(), pQ);
+    }
+    pQ->count -= 1;
     pQ->msgs_processed += 1;
     return pMsg;
   }
+#endif
 }
 
 /**
@@ -160,12 +216,13 @@ Msg_t *rmv(MpscFifo_t *pQ) {
 void ret_msg(Msg_t* pMsg) {
   if ((pMsg != NULL) && (pMsg->pPool != NULL)) {
     DPF(LDR "ret_msg: pool=%p msg=%p arg1=%lu arg2=%lu\n", ldr(), pMsg->pPool, pMsg, pMsg->arg1, pMsg->arg2);
-    add(pMsg->pPool, pMsg);
+    MsgPool_ret_msg(pMsg->pPool, pMsg);
+    //add(pMsg->pPoolFifo, pMsg);
   } else {
     if (pMsg == NULL) {
-      DPF(LDR "ret:#No msg msg=%p\n", ldr(), pMsg);
+      printf(LDR "ret:#No msg msg=%p\n", ldr(), pMsg);
     } else {
-      DPF(LDR "ret:#No pool msg=%p pool=%p arg1=%lu arg2=%lu\n",
+      printf(LDR "ret:#No pool msg=%p pool=%p arg1=%lu arg2=%lu\n",
           ldr(), pMsg, pMsg->pPool, pMsg->arg1, pMsg->arg2);
     }
   }

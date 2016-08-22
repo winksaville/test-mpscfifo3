@@ -35,6 +35,7 @@ typedef struct Cell_t Cell_t;
 typedef struct MpscFifo_t MpscFifo_t;
 typedef struct MpscRingBuff_t MpscRingBuff_t;
 typedef struct Msg_t Msg_t;
+typedef struct MsgPool_t MsgPool_t;
 
 typedef struct Cell_t {
   union {
@@ -46,7 +47,8 @@ typedef struct Cell_t {
 
 typedef struct Msg_t {
   Cell_t* pCell;
-  MpscFifo_t* pPool;
+  //MpscFifo_t* pPoolFifo;
+  MsgPool_t* pPool;
   MpscFifo_t* pRspQ;
   uint64_t arg1;
   uint64_t arg2;

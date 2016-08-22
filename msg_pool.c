@@ -31,7 +31,7 @@ bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
   Msg_t* msgs;
   Cell_t* cells;
 
-  DPF(LDR "MsgPool_init:+pool=%p msg_count=%u\n",
+  printf(LDR "MsgPool_init:+pool=%p msg_count=%u\n",
       ldr(), pool, msg_count);
 
   // Allocate messages
@@ -53,7 +53,7 @@ bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
   }
 
   // Output info on the pool and messages
-  DPF(LDR "MsgPool_init: pool=%p &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%lu(0x%lx)\n",
+  printf(LDR "MsgPool_init: pool=%p &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%lu(0x%lx)\n",
       ldr(), pool, &msgs[0], &msgs[1], sizeof(Msg_t), sizeof(Msg_t));
 
   // Create pool
@@ -62,11 +62,15 @@ bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
     Msg_t* msg = &msgs[i];
     msg->pCell = &cells[i];
     DPF(LDR "MsgPool_init: add %u msg=%p%s\n", ldr(), i, msg, i == 0 ? " stub" : "");
-    msg->pPool = &pool->fifo;
+    //msg->pPoolFifo = &pool->fifo;
+    msg->pPool = pool;
     add(&pool->fifo, msg);
   }
 
-  DPF(LDR "MsgPool_init: pool=%p, pHead=%p, pTail=%p sizeof(*pool)=%lu(0x%lx)\n",
+  pool->get_msg_count = 0;
+  pool->ret_msg_count = 0;
+
+  printf(LDR "MsgPool_init: pool=%p, pHead=%p, pTail=%p sizeof(*pool)=%lu(0x%lx)\n",
       ldr(), pool, pool->fifo.pHead, pool->fifo.pTail, sizeof(*pool), sizeof(*pool));
 
   error = false;
@@ -83,22 +87,23 @@ done:
     pool->msg_count = msg_count;
   }
 
-  DPF(LDR "MsgPool_init:-pool=%p msg_count=%u error=%u\n",
+  printf(LDR "MsgPool_init:-pool=%p msg_count=%u error=%u\n",
       ldr(), pool, msg_count, error);
 
   return error;
 }
 
 uint64_t MsgPool_deinit(MsgPool_t* pool) {
-  DPF(LDR "MsgPool_deinit:+pool=%p msgs=%p\n", ldr(), pool, pool->msgs);
+  printf(LDR "MsgPool_deinit:+pool=%p msgs=%p fifo=%p\n", ldr(), pool, pool->msgs, &pool->fifo);
   uint64_t msgs_processed = 0;
-#if 1
+#if 0
   msgs_processed += pool->fifo.msgs_processed;
   msgs_processed += pool->fifo.rb.msgs_processed;
 #else
   if (pool->msgs != NULL) {
     // Empty the pool
-    DPF(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u\n", ldr(), pool, pool->msg_count);
+    printf(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+        ldr(), pool, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
     for (uint32_t i = 0; i < pool->msg_count; i++) {
       Msg_t* msg;
 
@@ -116,11 +121,12 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
       DPF(LDR "MsgPool_deinit: removed %u msg=%p\n", ldr(), i, msg);
     }
 
-    DPF(LDR "MsgPool_deinit: pool=%p deinitMpscFifo fifo=%p\n", ldr(), pool, &pool->fifo);
+    printf(LDR "MsgPool_deinit: pool=%p deinitMpscFifo pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+        ldr(), pool, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
     msgs_processed = deinitMpscFifo(&pool->fifo);
 
     // Free msgs
-    DPF(LDR "MsgPool_deinit: pool=%p free msgs=%p\n", ldr(), pool, pool->msgs);
+    printf(LDR "MsgPool_deinit: pool=%p free msgs=%p\n", ldr(), pool, pool->msgs);
     free(pool->msgs);
     pool->msgs = NULL;
 
@@ -130,7 +136,8 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
     //pool->cells = NULL;
     pool->msg_count = 0;
   }
-  DPF(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu\n", ldr(), pool, msgs_processed);
+  printf(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+        ldr(), pool, msgs_processed, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
 #endif
   return msgs_processed;
 }
@@ -142,9 +149,20 @@ Msg_t* MsgPool_get_msg(MsgPool_t* pool) {
     msg->pRspQ = NULL;
     msg->arg1 = 0;
     msg->arg2 = 0;
+    pool->get_msg_count += 1;
     DPF(LDR "MsgPool_get_msg: pool=%p got msg=%p pool=%p\n", ldr(), pool, msg, msg->pPool);
   }
   DPF(LDR "MsgPool_get_msg:-pool=%p msg=%p\n", ldr(), pool, msg);
   return msg;
+}
+
+void MsgPool_ret_msg(MsgPool_t* pool, Msg_t* pMsg) {
+  DPF(LDR "MsgPool_ret_msg:+pool=%p msg=%p\n", ldr(), pool, pMsg);
+  if (pMsg != NULL) {
+    add(&pool->fifo, pMsg);
+    pool->ret_msg_count += 1;
+    DPF(LDR "MsgPool_ret_msg: pool=%p got msg=%p pool=%p\n", ldr(), pool, msg, msg->pPool);
+  }
+  DPF(LDR "MsgPool_ret_msg:-pool=%p msg=%p\n", ldr(), pool, pMsg);
 }
 

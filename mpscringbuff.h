@@ -20,12 +20,13 @@ typedef struct MpscRingBuff_t MpscRingBuff_t;
 typedef struct Msg_t Msg_t;
 
 typedef struct MpscRingBuff_t {
-  uint32_t VOLATILE add_idx __attribute__(( aligned (64) ));
-  uint32_t VOLATILE rmv_idx __attribute__(( aligned (64) ));
+  uint32_t volatile add_idx __attribute__(( aligned (64) ));
+  uint32_t volatile rmv_idx __attribute__(( aligned (64) ));
   uint32_t size;
   uint32_t mask;
   Cell_t* ring_buffer;
-  VOLATILE _Atomic(uint32_t) count;
+  volatile _Atomic(uint32_t) count;
+  volatile _Atomic(uint32_t) empty;
   uint64_t msgs_processed;
 } MpscRingBuff_t;
 

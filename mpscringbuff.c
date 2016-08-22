@@ -52,7 +52,8 @@ MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
     return NULL;
   }
   pRb->count = 0;
-  pRb->ring_buffer = malloc(size * sizeof(*pRb->ring_buffer));
+  pRb->empty = 0;
+  pRb->ring_buffer = malloc(size * sizeof(pRb->ring_buffer[0]));
   for (uint32_t i = 0; i < pRb->size; i++) {
     pRb->ring_buffer[i].seq = i;
     pRb->ring_buffer[i].pMsg = NULL;
@@ -96,7 +97,7 @@ bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
     int32_t dif = seq - pos;
 
     if (dif == 0) {
-      if (__atomic_compare_exchange_n((uint32_t*)&pRb->add_idx, &pos, pos + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
+      if (__atomic_compare_exchange_n((uint32_t*)&pRb->add_idx, &pos, pos + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
         break;
       }
     } else if (dif < 0) {
@@ -106,6 +107,7 @@ bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
     }
   }
 
+  pRb->count += 1;
   cell->pMsg = pMsg;
   __atomic_store_n(&cell->seq, pos + 1, __ATOMIC_RELEASE);
 
@@ -125,14 +127,22 @@ Msg_t* rb_rmv(MpscRingBuff_t* pRb) {
   int32_t dif = seq - (pos + 1);
 
   if (dif < 0) {
+    if (++pRb->empty > 1) {
+      //printf(LDR "rb_rmv: EMPTY dif=%d count=%d empty=%d seq=%d pos=%d\n",
+      //    ldr(), dif, pRb->count, pRb->empty, seq, pos);
+      //CRASH();
+    }
     return NULL;
   }
   
-  pMsg = cell->pMsg;
-  __atomic_store_n(&cell->seq, pos + pRb->mask + 1, __ATOMIC_RELEASE);
+  if (dif > 0) CRASH();
 
   pRb->rmv_idx += 1;
+  pRb->count -= 1;
   pRb->msgs_processed += 1;
+
+  pMsg = cell->pMsg;
+  __atomic_store_n(&cell->seq, pos + pRb->mask + 1, __ATOMIC_RELEASE);
 
   return pMsg;
 }

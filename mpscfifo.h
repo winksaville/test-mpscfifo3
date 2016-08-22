@@ -31,10 +31,11 @@
 typedef struct MpscFifo_t {
   Cell_t* pHead __attribute__(( aligned (64) ));
   Cell_t* pTail __attribute__(( aligned (64) ));
-  VOLATILE _Atomic(uint32_t) count;
+  volatile _Atomic(uint32_t) count;
   uint64_t msgs_processed;
   Cell_t cell;
-  bool use_rb;
+  volatile _Atomic(bool) add_use_rb;
+  volatile _Atomic(bool) rmv_use_rb;
   MpscRingBuff_t rb;
 } MpscFifo_t;
 
