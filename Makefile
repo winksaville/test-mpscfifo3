@@ -9,26 +9,29 @@ all: test simple
 diff_timespec.o : diff_timespec.c diff_timespec.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-mpscringbuff.o : mpscringbuff.c mpscringbuff.h dpf.h Makefile
+mpsclinklist.o : mpsclinklist.c mpsclinklist.h msg.h diff_timespec.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-mpscfifo.o : mpscfifo.c mpscfifo.h mpscringbuff.h dpf.h Makefile
+mpscringbuff.o : mpscringbuff.c mpscringbuff.h msg.h diff_timespec.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-msg_pool.o : msg_pool.c msg_pool.h dpf.h Makefile
+mpscfifo.o : mpscfifo.c mpscfifo.h mpscringbuff.h msg.h diff_timespce.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-test.o : test.c mpscfifo.h msg_pool.h diff_timespec.h dpf.h Makefile
+msg_pool.o : msg_pool.c msg_pool.h msg.h diff_timespce.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-test : test.o mpscfifo.o mpscringbuff.o msg_pool.o diff_timespec.o
+test.o : test.c mpscfifo.h msg_pool.h diff_timespec.h msg.h dpf.h Makefile
+	${CC} ${CC_FLAGS} -c $< -o $@
+
+test : test.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o
 	${CC} ${CC_FLAGS} $^ -o $@
 	objdump -d $@ > $@.txt
 
-simple.o : simple.c mpscfifo.h msg_pool.h diff_timespec.h dpf.h Makefile
+simple.o : simple.c mpscfifo.h msg_pool.h msg.h diff_timespec.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-simple : simple.o mpscfifo.o mpscringbuff.o msg_pool.o diff_timespec.o
+simple : simple.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o
 	${CC} ${CC_FLAGS} $^ -o $@
 	objdump -d $@ > $@.txt
 

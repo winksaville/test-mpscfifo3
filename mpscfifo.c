@@ -78,15 +78,24 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
   if (__atomic_load_n((bool*)&pQ->add_use_rb, __ATOMIC_ACQUIRE)) {
     if (rb_add(&pQ->rb, pMsg)) {
       DPF(LDR "add: pQ=%p added pMsg=%p using rb_add\n", ldr(), pQ, pMsg);
-      return;
-    }
-    **** Racing with other producers only one must change idx and use_rb. ****
+    } else {
+      // Ring buffer is full, have one producer switch to one of the link lists
+      bool changing = false;
+      if (__atomic_compare_exchange_n(&pQ->add_link_list_changing, &changing, true, false, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
+        DPF(LDR "add: pQ=%p changing, DOING pMsg=%p\n", ldr(), pQ, pMsg);
+        pQ->add_link_list_idx = !pQ->add_link_list_idx;
+        __atomic_store_n((bool*)&pQ->add_use_rb, false, __ATOMIC_RELEASE);
+        __atomic_store_n((bool*)&pQ->add_link_list_changing, true, __ATOMIC_RELEASE);
+      } else {
+        DPF(LDR "add: pQ=%p changing, WAITING pMsg=%p\n", ldr(), pQ, pMsg);
+        while(true == __atomic_load_n(&pQ->add_link_list_changing, __ATOMIC_ACQUIRE)) {
+          // TODO: FIX we must not spin but good enough for now.
+        }
+      }
 
-    printf(LDR "add: pQ=%p set use_rb=false FULL add to fifo pMsg=%p\n", ldr(), pQ, pMsg);
-    pQ->add_link_list_idx = !pQ->add_link_list_idx;
-    __atomic_store_n((bool*)&pQ->add_use_rb, false, __ATOMIC_RELEASE);
+      ll_add(&pQ->link_lists[pQ->add_link_list_idx], pMsg);
+    }
   }
-  ll_add(&pQ->link_lists[pQ->add_link_list_idx], pMsg);
 }
 
 /**
@@ -97,7 +106,6 @@ Msg_t* rmv(MpscFifo_t* pQ) {
   if (__atomic_load_n((bool*)&pQ->rmv_use_rb, __ATOMIC_ACQUIRE)) {
     pMsg = rb_rmv(&pQ->rb);
     if (pMsg != NULL) {
-      pQ->count -= 1;
       DPF(LDR "rmv: pQ=%p 0.0 pMsg=%p\n", ldr(), pQ, pMsg);
       return pMsg;
     }
@@ -108,28 +116,8 @@ Msg_t* rmv(MpscFifo_t* pQ) {
     // Empty, and its was full so stop using rb
     printf(LDR "rmv: pQ=%p 1.0 pMsg=%p\n", ldr(), pQ, pMsg);
     __atomic_store_n((bool*)&pQ->rmv_use_rb, false, __ATOMIC_RELEASE);
-  }
-  Cell_t* pTail = pQ->pTail;
-  Cell_t* pNext = pTail->pNext;
-  if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
-    return NULL;
   } else {
-    if (pNext == NULL) {
-      while ((pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE)) == NULL) {
-        sched_yield();
-      }
-    }
-    pMsg = pNext->pMsg;
-    pMsg->pCell = pTail;
-    pQ->pTail = pNext;
-    if (pMsg == NULL) {
-      printf(LDR "rmv: pQ=%p 3.0\n", ldr(), pQ);
-      CRASH(); // 2
-      printf(LDR "rmv: pQ=%p 3.1\n", ldr(), pQ);
-    }
-    pQ->count -= 1;
-    pQ->msgs_processed += 1;
-    return pMsg;
+    pMsg = ll_rmv(&pQ->link_lists[pQ->add_link_list_idx]);
   }
 }
 
@@ -144,9 +132,11 @@ void ret_msg(Msg_t* pMsg) {
   } else {
     if (pMsg == NULL) {
       printf(LDR "ret:#No msg msg=%p\n", ldr(), pMsg);
+      CRASH();
     } else {
       printf(LDR "ret:#No pool msg=%p pool=%p arg1=%lu arg2=%lu\n",
           ldr(), pMsg, pMsg->pPool, pMsg->arg1, pMsg->arg2);
+      CRASH();
     }
   }
 }
