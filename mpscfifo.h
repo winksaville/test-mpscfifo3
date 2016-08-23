@@ -24,28 +24,28 @@
 
 #include "msg.h"
 #include "mpscringbuff.h"
+#include "mpsclinklist.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
+#if 1
+
 typedef struct MpscFifo_t {
-  Cell_t* pHead __attribute__(( aligned (64) ));
-  Cell_t* pTail __attribute__(( aligned (64) ));
-  volatile _Atomic(uint32_t) count;
-  uint64_t msgs_processed;
-  Cell_t cell;
+  MpscRingBuff_t rb;
   volatile _Atomic(bool) add_use_rb;
   volatile _Atomic(bool) rmv_use_rb;
-  MpscRingBuff_t rb;
+
+  MpscLinkList_t link_lists[2];
+  volatile _Atomic(bool) add_link_list_idx;
+  volatile _Atomic(bool) rmv_link_list_idx;
 } MpscFifo_t;
-
-extern _Atomic(uint64_t) gTick;
-
+  
 /**
  * Initialize an MpscFifo_t. Don't forget to empty the fifo
  * and delete the stub before freeing MpscFifo_t.
  */
-extern MpscFifo_t *initMpscFifo(MpscFifo_t *pQ);
+extern MpscFifo_t* initMpscFifo(MpscFifo_t* pQ);
 
 /**
  * Deinitialize the MpscFifo_t and ***pStub is stub if this routine
@@ -54,21 +54,21 @@ extern MpscFifo_t *initMpscFifo(MpscFifo_t *pQ);
  *
  * @return number of messages removed.
  */
-extern uint64_t deinitMpscFifo(MpscFifo_t *pQ);
+extern uint64_t deinitMpscFifo(MpscFifo_t* pQ);
 
 /**
  * Add a Msg_t to the Queue. This maybe used by multiple
  * entities on the same or different thread. This will never
  * block as it is a wait free algorithm.
  */
-extern void add(MpscFifo_t *pQ, Msg_t *pMsg);
+extern void add(MpscFifo_t* pQ, Msg_t* pMsg);
 
 /**
  * Remove a Msg_t from the Queue. This maybe used only by
  * a single thread and returns NULL if empty or would
  * have blocked.
  */
-extern Msg_t *rmv_non_stalling(MpscFifo_t *pQ);
+extern Msg_t* rmv_non_stalling(MpscFifo_t* pQ);
 
 /**
  * Remove a Msg_t from the Queue. This maybe used only by
@@ -76,7 +76,7 @@ extern Msg_t *rmv_non_stalling(MpscFifo_t *pQ);
  * stall if a producer call add and was preempted before
  * finishing.
  */
-extern Msg_t *rmv(MpscFifo_t *pQ);
+extern Msg_t* rmv(MpscFifo_t* pQ);
 
 /**
  * Return the message to its pool.

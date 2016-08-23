@@ -9,9 +9,6 @@
 
 #define VOLATILE volatile
 
-#define LDR "%6ld %lx  "
-#define ldr() ++gTick, pthread_self()
-
 #define CRASH() do { *((volatile uint8_t*)0) = 0; } while(0)
 
 /** mfence instruction */

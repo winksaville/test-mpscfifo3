@@ -27,6 +27,7 @@
 
 #include "mpscfifo.h"
 #include "mpscringbuff.h"
+#include "mpsclinklist.h"
 #include "msg_pool.h"
 #include "dpf.h"
 
@@ -44,37 +45,27 @@
 /**
  * @see mpscfifo.h
  */
-MpscFifo_t *initMpscFifo(MpscFifo_t *pQ) {
+MpscFifo_t* initMpscFifo(MpscFifo_t* pQ) {
   printf(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
-  pQ->cell.pNext = NULL;
-  pQ->cell.pMsg = NULL;
-  pQ->pHead = &pQ->cell;
-  pQ->pTail = &pQ->cell;
-  pQ->count = 0;
-  pQ->msgs_processed = 0;
+  ll_init(&pQ->link_lists[0]);
+  ll_init(&pQ->link_lists[1]);
+  rb_init(&pQ->rb, 0x100);
   pQ->add_use_rb = true;
   pQ->rmv_use_rb = true;
-  rb_init(&pQ->rb, 0x100);
   return pQ;
 }
 
 /**
  * @see mpscfifo.h
  */
-uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
-  uint64_t msgs_processed = pQ->msgs_processed;
+uint64_t deinitMpscFifo(MpscFifo_t* pQ) {
+  uint32_t count = pQ->link_lists[0].count;
+  count += pQ->link_lists[0].count;
+  count += pQ->rb.count;
+
+  uint64_t msgs_processed = ll_deinit(&pQ->link_lists[0]);
+  msgs_processed += ll_deinit(&pQ->link_lists[1]);
   msgs_processed += rb_deinit(&pQ->rb);
-  pQ->add_use_rb = false;
-  pQ->rmv_use_rb = false;
-//#ifndef NDEBUG
-  uint32_t count = pQ->count;
-//#endif
-  Cell_t *pStub = pQ->pHead;
-  pStub->pNext = NULL;
-  pQ->pHead = NULL;
-  pQ->pTail = NULL;
-  pQ->count = 0;
-  pQ->msgs_processed = 0;
 
   printf(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
   return msgs_processed;
@@ -83,76 +74,25 @@ uint64_t deinitMpscFifo(MpscFifo_t *pQ) {
 /**
  * @see mpscifo.h
  */
-void add(MpscFifo_t *pQ, Msg_t *pMsg) {
-#if 0
-    if (rb_add(&pQ->rb, pMsg)) {
-      pQ->count += 1;
-      return;
-    } else {
-      return;
-    }
-#else
+void add(MpscFifo_t* pQ, Msg_t* pMsg) {
   if (__atomic_load_n((bool*)&pQ->add_use_rb, __ATOMIC_ACQUIRE)) {
     if (rb_add(&pQ->rb, pMsg)) {
       DPF(LDR "add: pQ=%p added pMsg=%p using rb_add\n", ldr(), pQ, pMsg);
-      pQ->count += 1;
       return;
     }
+    **** Racing with other producers only one must change idx and use_rb. ****
+
     printf(LDR "add: pQ=%p set use_rb=false FULL add to fifo pMsg=%p\n", ldr(), pQ, pMsg);
+    pQ->add_link_list_idx = !pQ->add_link_list_idx;
     __atomic_store_n((bool*)&pQ->add_use_rb, false, __ATOMIC_RELEASE);
   }
-  Cell_t* pCell = pMsg->pCell;
-  pCell->pNext = NULL;
-  pCell->pMsg = pMsg;
-  Cell_t* pPrev = __atomic_exchange_n(&pQ->pHead, pCell, __ATOMIC_ACQ_REL);
-  // rmv will stall spinning if preempted at this critical spot
-  __atomic_store_n(&pPrev->pNext, pCell, __ATOMIC_RELEASE);
-  pQ->count += 1;
-#endif
+  ll_add(&pQ->link_lists[pQ->add_link_list_idx], pMsg);
 }
-
-#if 0
-/**
- * @see mpscifo.h
- */
-Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
-  Msg_t* pMsg;
-
-  if (__atomic_load_n(&pQ->use_rb, __ATOMIC_ACQUIRE)) {
-    pMsg = rb_rmv(&pQ->rb);
-    if (pMsg != NULL) {
-      pQ->count -= 1;
-    }
-    return pMsg;
-  }
-  Cell_t* pTail = pQ->pTail;
-  Cell_t* pNext = pTail->pNext;
-  if (pNext != NULL) {
-    pMsg = pNext->pMsg;
-    pMsg->pCell = pTail;
-    pQ->pTail = pNext;
-  } else {
-    pMsg = rb_rmv(&pQ->rb);
-    if (pMsg == NULL) {
-      CRASH();
-    }
-    pQ->use_rb = true;
-  }
-  if (pMsg != NULL) {
-    pQ->count -= 1;
-  }
-  pQ->msgs_processed += 1;
-  return pMsg;
-}
-#endif
 
 /**
  * @see mpscifo.h
  */
-Msg_t *rmv(MpscFifo_t *pQ) {
-#if 0
-  return rb_rmv(&pQ->rb);
-#else
+Msg_t* rmv(MpscFifo_t* pQ) {
   Msg_t* pMsg;
   if (__atomic_load_n((bool*)&pQ->rmv_use_rb, __ATOMIC_ACQUIRE)) {
     pMsg = rb_rmv(&pQ->rb);
@@ -173,22 +113,6 @@ Msg_t *rmv(MpscFifo_t *pQ) {
   Cell_t* pNext = pTail->pNext;
   if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
     return NULL;
-#if 0
-    pMsg = rb_rmv(&pQ->rb);
-    //printf(LDR "add: set use_rb=true\n", ldr());
-    if (pMsg == NULL) {
-      //printf(LDR "rmv: 2.0 pMsg=%p\n", ldr(), pMsg);
-      //CRASH(); // 1
-      //printf(LDR "rmv: 2.1\n", ldr());
-      //__atomic_store_n(&pQ->use_rb, true, __ATOMIC_RELEASE);
-      //__atomic_store_n(&pQ->use_rb, true, __ATOMIC_RELEASE);
-      return pMsg;
-    } else {
-      pQ->count -= 1;
-      pQ->msgs_processed += 1;
-      return pMsg;
-    }
-#endif
   } else {
     if (pNext == NULL) {
       while ((pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE)) == NULL) {
@@ -207,7 +131,6 @@ Msg_t *rmv(MpscFifo_t *pQ) {
     pQ->msgs_processed += 1;
     return pMsg;
   }
-#endif
 }
 
 /**
