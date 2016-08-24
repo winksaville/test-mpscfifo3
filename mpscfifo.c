@@ -19,7 +19,7 @@
  * the same but the returned pointer will be different.
  */
 
-//#define NDEBUG
+#define NDEBUG
 
 #define _DEFAULT_SOURCE
 

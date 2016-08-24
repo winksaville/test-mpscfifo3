@@ -2,7 +2,7 @@
  * This software is released into the public domain.
  */
 
-//#define NDEBUG
+#define NDEBUG
 
 #define _DEFAULT_SOURCE
 #define USE_RMV 1
@@ -103,7 +103,7 @@ void send_to_peers(ClientParams* cp) {
 }
 
 static void* client(void* p) {
-  printf(LDR "client:+param=%p\n", ldr(), p);
+  DPF(LDR "client:+param=%p\n", ldr(), p);
   Msg_t* msg;
 
   ClientParams* cp = (ClientParams*)p;
@@ -113,16 +113,16 @@ static void* client(void* p) {
   cp->msgs_processed = 0;
 
   if (cp->max_peer_count > 0) {
-    printf(LDR "client: param=%p allocate peers max_peer_count=%u\n",
+    DPF(LDR "client: param=%p allocate peers max_peer_count=%u\n",
         ldr(), p, cp->max_peer_count);
     cp->peers = malloc(sizeof(ClientParams*) * cp->max_peer_count);
     if (cp->peers == NULL) {
-      printf(LDR "client: param=%p ERROR unable to allocate peers max_peer_count=%u\n",
+      DPF(LDR "client: param=%p ERROR unable to allocate peers max_peer_count=%u\n",
           ldr(), p, cp->max_peer_count);
       cp->error_count += 1;
     }
   } else {
-    printf(LDR "client: param=%p No peers max_peer_count=%d\n",
+    DPF(LDR "client: param=%p No peers max_peer_count=%d\n",
         ldr(), p, cp->max_peer_count);
     cp->peers = NULL;
   }
@@ -131,16 +131,16 @@ static void* client(void* p) {
 
 
   // Init local msg pool
-  printf(LDR "client: init msg pool=%p msg_count=%u\n", ldr(), &cp->pool, cp->msg_count);
+  DPF(LDR "client: init msg pool=%p msg_count=%u\n", ldr(), &cp->pool, cp->msg_count);
   bool error = MsgPool_init(&cp->pool, cp->msg_count);
   if (error) {
-    printf(LDR "client: param=%p ERROR unable to create msgs for pool\n", ldr(), p);
+    DPF(LDR "client: param=%p ERROR unable to create msgs for pool\n", ldr(), p);
     cp->error_count += 1;
   }
 
   // Init cmdFifo
   initMpscFifo(&cp->cmdFifo);
-  printf(LDR "client: param=%p cp->cmdFifo=%p count=%d\n", ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
+  DPF(LDR "client: param=%p cp->cmdFifo=%p count=%d\n", ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
 
 
   // Signal we're ready
@@ -184,7 +184,7 @@ static void* client(void* p) {
                     ldr(), p, cp->peers[cp->peers_connected]);
                 cp->peers_connected += 1;
               } else {
-                printf(LDR "client: param=%p CmdConnect ERROR msg->arg2=%lx to many peers "
+                DPF(LDR "client: param=%p CmdConnect ERROR msg->arg2=%lx to many peers "
                     "peers_connected=%u >= cp->max_peer_count=%u\n",
                     ldr(), p, msg->arg2, cp->peers_connected, cp->max_peer_count);
               }
@@ -233,7 +233,7 @@ static void* client(void* p) {
 
 done:
   // Flush any messages in the cmdFifo
-  printf(LDR "client: param=%p done, flushing fifo count=%d\n", ldr(), p, cp->cmdFifo.count);
+  DPF(LDR "client: param=%p done, flushing fifo count=%d\n", ldr(), p, cp->cmdFifo.count);
   uint32_t unprocessed = 0;
   while ((msg = RMV(&cp->cmdFifo)) != NULL) {
     DPF(LDR "client: param=%p ret msg=%p\n", ldr(), p, msg);
@@ -242,14 +242,14 @@ done:
   }
 
   // deinit cmd fifo
-  printf(LDR "client: param=%p deinit cmdFifo=%p count=%d unprocessed=%u\n",ldr(), p, &cp->cmdFifo, cp->cmdFifo.count, unprocessed);
+  DPF(LDR "client: param=%p deinit cmdFifo=%p count=%d unprocessed=%u\n",ldr(), p, &cp->cmdFifo, cp->cmdFifo.count, unprocessed);
   cp->msgs_processed = deinitMpscFifo(&cp->cmdFifo);
 
   // deinit msg pool
-  printf(LDR "client: param=%p deinit msg pool=%p msg_count=%u\n", ldr(), p, &cp->pool, cp->pool.msg_count);
+  DPF(LDR "client: param=%p deinit msg pool=%p msg_count=%u\n", ldr(), p, &cp->pool, cp->pool.msg_count);
   cp->msgs_processed += MsgPool_deinit(&cp->pool);
 
-  printf(LDR "client:-param=%p error_count=%lu\n", ldr(), p, cp->error_count);
+  DPF(LDR "client:-param=%p error_count=%lu\n", ldr(), p, cp->error_count);
   return NULL;
 }
 

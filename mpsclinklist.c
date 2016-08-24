@@ -7,7 +7,7 @@
  *   http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue
  */
 
-//#define NDEBUG
+#define NDEBUG
 
 #define _DEFAULT_SOURCE
 
@@ -110,7 +110,7 @@ Msg_t* ll_rmv(MpscLinkList_t* pLl) {
     }
     pLl->count -= 1;
     pLl->msgs_processed += 1;
-    printf(LDR "ll_rmv:-pLl=%p pMsg=%p\n", ldr(), pLl, pMsg);
+    DPF(LDR "ll_rmv:-pLl=%p pMsg=%p\n", ldr(), pLl, pMsg);
     return pMsg;
   }
 }

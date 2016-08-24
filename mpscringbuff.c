@@ -8,7 +8,7 @@
  * to the head removed from the tail.
  */
 
-//#define NDEBUG
+#define NDEBUG
 
 #define _DEFAULT_SOURCE
 
@@ -157,6 +157,6 @@ Msg_t* rb_rmv(MpscRingBuff_t* pRb) {
     printf(LDR "rb_rmv:*pRb=%p WTF unexpected pMsg == NULL\n", ldr(), pRb);
     CRASH();
   }
-  printf(LDR "rb_rmv:-pRb=%p pMsg=%p\n", ldr(), pRb, pMsg);
+  DPF(LDR "rb_rmv:-pRb=%p pMsg=%p\n", ldr(), pRb, pMsg);
   return pMsg;
 }
