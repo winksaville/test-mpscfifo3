@@ -7,13 +7,14 @@
  *   http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue
  */
 
-#define NDEBUG
+//#define NDEBUG
 
 #define _DEFAULT_SOURCE
 
 #define DELAY 0
 
 #include "mpsclinklist.h"
+#include "crash.h"
 #include "dpf.h"
 
 #include <sys/types.h>
@@ -31,7 +32,7 @@
  * @see mpsclinklist.h
  */
 MpscLinkList_t* ll_init(MpscLinkList_t* pLl) {
-  printf(LDR "initMpscFifo:*pLl=%p\n", ldr(), pLl);
+  DPF(LDR "ll_init:+pLl=%p\n", ldr(), pLl);
 
   pLl->cell.pNext = NULL;
   pLl->cell.pMsg = NULL;
@@ -39,6 +40,8 @@ MpscLinkList_t* ll_init(MpscLinkList_t* pLl) {
   pLl->pTail = &pLl->cell;
   pLl->count = 0;
   pLl->msgs_processed = 0;
+
+  DPF(LDR "ll_init:-pLl=%p\n", ldr(), pLl);
   return pLl;
 }
 
@@ -46,6 +49,8 @@ MpscLinkList_t* ll_init(MpscLinkList_t* pLl) {
  * @see mpsclinklist.h
  */
 uint64_t ll_deinit(MpscLinkList_t* pLl) {
+  DPF(LDR "ll_deinit:+pLl=%p\n", ldr(), pLl);
+
   uint64_t msgs_processed = pLl->msgs_processed;
   uint32_t count = pLl->count;
 
@@ -56,7 +61,7 @@ uint64_t ll_deinit(MpscLinkList_t* pLl) {
   pLl->count = 0;
   pLl->msgs_processed = 0;
 
-  printf(LDR "deinitMpscFifo:-pLl=%p count=%u msgs_processed=%lu\n", ldr(), pLl, count, msgs_processed);
+  DPF(LDR "ll_deinit:-pLl=%p count=%u msgs_processed=%lu\n", ldr(), pLl, count, msgs_processed);
   return msgs_processed;
 }
 
@@ -64,6 +69,8 @@ uint64_t ll_deinit(MpscLinkList_t* pLl) {
  * @see mpsclinklist.h
  */
 void ll_add(MpscLinkList_t* pLl, Msg_t* pMsg) {
+  DPF(LDR "ll_add:+pLl=%p pMsg=%p\n", ldr(), pLl, pMsg);
+
   Cell_t* pCell = pMsg->pCell;
   pCell->pNext = NULL;
   pCell->pMsg = pMsg;
@@ -71,16 +78,21 @@ void ll_add(MpscLinkList_t* pLl, Msg_t* pMsg) {
   // rmv will stall spinning if preempted at this critical spot
   __atomic_store_n(&pPrev->pNext, pCell, __ATOMIC_RELEASE);
   pLl->count += 1;
+
+  DPF(LDR "ll_add:-pLl=%p pMsg=%p\n", ldr(), pLl, pMsg);
 }
 
 /**
  * @see mpsclinklist.h
  */
 Msg_t* ll_rmv(MpscLinkList_t* pLl) {
+  DPF(LDR "ll_rmv:+pLl=%p\n", ldr(), pLl);
+
   Msg_t* pMsg;
   Cell_t* pTail = pLl->pTail;
   Cell_t* pNext = pTail->pNext;
   if ((pNext == NULL) && (pTail == __atomic_load_n(&pLl->pHead, __ATOMIC_ACQUIRE))) {
+    DPF(LDR "ll_rmv:-pLl=%p EMPTY\n", ldr(), pLl);
     return NULL;
   } else {
     if (pNext == NULL) {
@@ -92,12 +104,13 @@ Msg_t* ll_rmv(MpscLinkList_t* pLl) {
     pMsg->pCell = pTail;
     pLl->pTail = pNext;
     if (pMsg == NULL) {
-      printf(LDR "rmv: pLl=%p 3.0\n", ldr(), pLl);
-      CRASH(); // 2
-      printf(LDR "rmv: pLl=%p 3.1\n", ldr(), pLl);
+      printf(LDR "ll_rmv: pLl=%p WTF 1 pMsg == NULL\n", ldr(), pLl);
+      CRASH();
+      printf(LDR "ll_rmv: pLl=%pWTF 2 pMsg == NULL\n", ldr(), pLl);
     }
     pLl->count -= 1;
     pLl->msgs_processed += 1;
+    printf(LDR "ll_rmv:-pLl=%p pMsg=%p\n", ldr(), pLl, pMsg);
     return pMsg;
   }
 }

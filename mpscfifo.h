@@ -29,16 +29,25 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define ADD_STATE_RB               1
+#define ADD_STATE_LL               2
+#define ADD_STATE_CHANGING_TO_LL   3
+
+#define RMV_STATE_RB               4
+#define RMV_STATE_LL               5
+#define RMV_STATE_CHANGING_TO_RB   6
+
 typedef struct MpscFifo_t {
   MpscRingBuff_t rb;
-  volatile _Atomic(bool) add_use_rb;
-  volatile _Atomic(bool) rmv_use_rb;
+  uint32_t add_state;
+  uint32_t rmv_state;
 
   MpscLinkList_t link_lists[2];
 
-  bool add_link_list_changing;
-  volatile _Atomic(bool) add_link_list_idx;
-  volatile _Atomic(bool) rmv_link_list_idx;
+  bool add_link_list_idx;
+  bool rmv_link_list_idx;
+
+  _Atomic(int32_t) count;
 } MpscFifo_t;
   
 /**

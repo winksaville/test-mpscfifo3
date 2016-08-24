@@ -30,8 +30,6 @@ typedef struct MpscRingBuff_t {
   uint64_t msgs_processed;
 } MpscRingBuff_t;
 
-extern _Atomic(uint64_t) gTick;
-
 /**
  * Initialize the MpscRingBuff_t, size must be a power of two.
  *

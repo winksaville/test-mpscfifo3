@@ -70,8 +70,8 @@ bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
   pool->get_msg_count = 0;
   pool->ret_msg_count = 0;
 
-  printf(LDR "MsgPool_init: pool=%p, pHead=%p, pTail=%p sizeof(*pool)=%lu(0x%lx)\n",
-      ldr(), pool, pool->fifo.pHead, pool->fifo.pTail, sizeof(*pool), sizeof(*pool));
+  printf(LDR "MsgPool_init: pool=%p, sizeof(*pool)=%lu(0x%lx)\n",
+      ldr(), pool, sizeof(*pool), sizeof(*pool));
 
   error = false;
 done:

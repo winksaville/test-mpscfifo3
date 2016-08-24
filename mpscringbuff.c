@@ -8,7 +8,7 @@
  * to the head removed from the tail.
  */
 
-#define NDEBUG
+//#define NDEBUG
 
 #define _DEFAULT_SOURCE
 
@@ -21,6 +21,7 @@
 #include "msg.h"
 #include "mpscfifo.h"
 #include "mpscringbuff.h"
+#include "crash.h"
 #include "dpf.h"
 
 #include <sys/types.h>
@@ -41,14 +42,14 @@
  * @see mpscringbuff.h
  */
 MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
-  DPF(LDR "initMpscRingBuff:+pRb=%p size=%d\n", ldr(), pRb, size);
+  DPF(LDR "rb_init:+pRb=%p size=%d\n", ldr(), pRb, size);
   pRb->add_idx = 0;
   pRb->rmv_idx = 0;
   pRb->size = size;
   pRb->mask = size - 1;
   pRb->msgs_processed = 0;
   if ((size & pRb->mask) != 0) {
-    printf(LDR "initMpscRingBuff:-pRb=%p size=%d not power of 2 return NULL\n", ldr(), pRb, size);
+    printf(LDR "rb_init:-pRb=%p size=%d not power of 2 return NULL\n", ldr(), pRb, size);
     return NULL;
   }
   pRb->count = 0;
@@ -59,10 +60,10 @@ MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
     pRb->ring_buffer[i].pMsg = NULL;
   }
   if (pRb->ring_buffer == NULL) {
-    printf(LDR "initMpscRingBuff:-pRb=%p size=%d could not allocate ring_buffer return NULL\n", ldr(), pRb, size);
+    printf(LDR "rb_init:-pRb=%p size=%d could not allocate ring_buffer return NULL\n", ldr(), pRb, size);
     return NULL;
   }
-  DPF(LDR "initMpscRingBuff:-pRb=%p size=%d\n", ldr(), pRb, size);
+  DPF(LDR "rb_init:-pRb=%p size=%d\n", ldr(), pRb, size);
   return pRb;
 }
 
@@ -70,7 +71,7 @@ MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
  * @see mpscringbuff.h
  */
 uint64_t rb_deinit(MpscRingBuff_t* pRb) {
-  DPF(LDR "deinitMpscRingBuff:+pRb=%p\n", ldr(), pRb);
+  DPF(LDR "rb_deinit:+pRb=%p\n", ldr(), pRb);
   uint64_t msgs_processed = pRb->msgs_processed;
   free(pRb->ring_buffer);
   pRb->ring_buffer = NULL;
@@ -80,7 +81,7 @@ uint64_t rb_deinit(MpscRingBuff_t* pRb) {
   pRb->mask = 0;
   pRb->count = 0;
   pRb->msgs_processed = 0;
-  DPF(LDR "deinitMpscRingBuff:-pRb=%p msgs_processed=%lu\n", ldr(), pRb, msgs_processed);
+  DPF(LDR "rb_deinit:-pRb=%p msgs_processed=%lu\n", ldr(), pRb, msgs_processed);
   return msgs_processed;
 }
 
@@ -88,6 +89,7 @@ uint64_t rb_deinit(MpscRingBuff_t* pRb) {
  * @see mpscringbuff.h
  */
 bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
+  DPF(LDR "rb_add:+pRb=%p pMsg=%p\n", ldr(), pRb, pMsg);
   Cell_t* cell;
   uint32_t pos = pRb->add_idx;
 
@@ -101,6 +103,7 @@ bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
         break;
       }
     } else if (dif < 0) {
+      DPF(LDR "rb_add:-pRb=%p FULL pMsg=%p\n", ldr(), pRb, pMsg);
       return false;
     } else {
       pos = pRb->add_idx;
@@ -111,6 +114,7 @@ bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
   cell->pMsg = pMsg;
   __atomic_store_n(&cell->seq, pos + 1, __ATOMIC_RELEASE);
 
+  DPF(LDR "rb_add:-pRb=%p pMsg=%p\n", ldr(), pRb, pMsg);
   return true;
 }
 
@@ -118,6 +122,7 @@ bool rb_add(MpscRingBuff_t* pRb, Msg_t* pMsg) {
  * @see mpscringbuff.h
  */
 Msg_t* rb_rmv(MpscRingBuff_t* pRb) {
+  DPF(LDR "rb_rmv: pRb=%p\n", ldr(), pRb);
   Msg_t* pMsg;
   Cell_t* cell;
   uint32_t pos = pRb->rmv_idx;
@@ -132,10 +137,14 @@ Msg_t* rb_rmv(MpscRingBuff_t* pRb) {
       //    ldr(), dif, pRb->count, pRb->empty, seq, pos);
       //CRASH();
     }
+    DPF(LDR "rb_rmv:-pRb=%p EMPTY\n", ldr(), pRb);
     return NULL;
   }
   
-  if (dif > 0) CRASH();
+  if (dif > 0) {
+    printf(LDR "rb_rmv:*pRb=%p WTF dif > 0\n", ldr(), pRb);
+    CRASH();
+  }
 
   pRb->rmv_idx += 1;
   pRb->count -= 1;
@@ -144,5 +153,10 @@ Msg_t* rb_rmv(MpscRingBuff_t* pRb) {
   pMsg = cell->pMsg;
   __atomic_store_n(&cell->seq, pos + pRb->mask + 1, __ATOMIC_RELEASE);
 
+  if (pMsg == NULL) {
+    printf(LDR "rb_rmv:*pRb=%p WTF unexpected pMsg == NULL\n", ldr(), pRb);
+    CRASH();
+  }
+  printf(LDR "rb_rmv:-pRb=%p pMsg=%p\n", ldr(), pRb, pMsg);
   return pMsg;
 }

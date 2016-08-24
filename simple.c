@@ -2,7 +2,7 @@
  * This software is released into the public domain.
  */
 
-#define NDEBUG
+//#define NDEBUG
 
 #define _DEFAULT_SOURCE
 

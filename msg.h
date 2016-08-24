@@ -15,8 +15,8 @@ typedef struct MsgPool_t MsgPool_t;
 
 typedef struct Cell_t {
   union {
-    Cell_t* VOLATILE pNext __attribute__ (( aligned (64) ));
-    uint32_t VOLATILE seq;
+    Cell_t* pNext __attribute__ (( aligned (64) ));
+    uint32_t seq;
   };
   Msg_t* pMsg;
 } Cell_t;

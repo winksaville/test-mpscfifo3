@@ -2,7 +2,7 @@
  * This software is released into the public domain.
  */
 
-#define NDEBUG
+//#define NDEBUG
 
 #define _DEFAULT_SOURCE
 #define USE_RMV 1
@@ -140,7 +140,7 @@ static void* client(void* p) {
 
   // Init cmdFifo
   initMpscFifo(&cp->cmdFifo);
-  printf(LDR "client: param=%p cp->cmdFifo=%p count=%u\n", ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
+  printf(LDR "client: param=%p cp->cmdFifo=%p count=%d\n", ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
 
 
   // Signal we're ready

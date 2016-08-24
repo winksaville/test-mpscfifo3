@@ -19,16 +19,17 @@
  * the same but the returned pointer will be different.
  */
 
-#define NDEBUG
+//#define NDEBUG
 
 #define _DEFAULT_SOURCE
 
 #define DELAY 0
 
+#include "crash.h"
+#include "msg_pool.h"
 #include "mpscfifo.h"
 #include "mpscringbuff.h"
 #include "mpsclinklist.h"
-#include "msg_pool.h"
 #include "dpf.h"
 
 #include <sys/types.h>
@@ -46,12 +47,15 @@
  * @see mpscfifo.h
  */
 MpscFifo_t* initMpscFifo(MpscFifo_t* pQ) {
-  printf(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
+  DPF(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
   ll_init(&pQ->link_lists[0]);
   ll_init(&pQ->link_lists[1]);
-  rb_init(&pQ->rb, 0x100);
-  pQ->add_use_rb = true;
-  pQ->rmv_use_rb = true;
+  rb_init(&pQ->rb, 0x2); //0x100);
+  pQ->add_state = ADD_STATE_RB;
+  pQ->rmv_state = RMV_STATE_RB;
+  pQ->add_link_list_idx = 0;
+  pQ->rmv_link_list_idx = 0;
+  pQ->count = 0;
   return pQ;
 }
 
@@ -60,14 +64,14 @@ MpscFifo_t* initMpscFifo(MpscFifo_t* pQ) {
  */
 uint64_t deinitMpscFifo(MpscFifo_t* pQ) {
   uint32_t count = pQ->link_lists[0].count;
-  count += pQ->link_lists[0].count;
+  count += pQ->link_lists[1].count;
   count += pQ->rb.count;
 
   uint64_t msgs_processed = ll_deinit(&pQ->link_lists[0]);
   msgs_processed += ll_deinit(&pQ->link_lists[1]);
   msgs_processed += rb_deinit(&pQ->rb);
 
-  printf(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
+  DPF(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
   return msgs_processed;
 }
 
@@ -75,25 +79,49 @@ uint64_t deinitMpscFifo(MpscFifo_t* pQ) {
  * @see mpscifo.h
  */
 void add(MpscFifo_t* pQ, Msg_t* pMsg) {
-  if (__atomic_load_n((bool*)&pQ->add_use_rb, __ATOMIC_ACQUIRE)) {
-    if (rb_add(&pQ->rb, pMsg)) {
-      DPF(LDR "add: pQ=%p added pMsg=%p using rb_add\n", ldr(), pQ, pMsg);
-    } else {
-      // Ring buffer is full, have one producer switch to one of the link lists
-      bool changing = false;
-      if (__atomic_compare_exchange_n(&pQ->add_link_list_changing, &changing, true, false, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
-        DPF(LDR "add: pQ=%p changing, DOING pMsg=%p\n", ldr(), pQ, pMsg);
-        pQ->add_link_list_idx = !pQ->add_link_list_idx;
-        __atomic_store_n((bool*)&pQ->add_use_rb, false, __ATOMIC_RELEASE);
-        __atomic_store_n((bool*)&pQ->add_link_list_changing, true, __ATOMIC_RELEASE);
-      } else {
-        DPF(LDR "add: pQ=%p changing, WAITING pMsg=%p\n", ldr(), pQ, pMsg);
-        while(true == __atomic_load_n(&pQ->add_link_list_changing, __ATOMIC_ACQUIRE)) {
-          // TODO: FIX we must not spin but good enough for now.
+  while (true) {
+    uint32_t add_state = __atomic_load_n(&pQ->add_state, __ATOMIC_ACQUIRE);
+    switch (add_state) {
+      case (ADD_STATE_RB): {
+        DPF(LDR "add: pQ=%p ADD_STATE_RB pMsg=%p\n", ldr(), pQ, pMsg);
+
+        if (rb_add(&pQ->rb, pMsg)) {
+#ifndef NDEBUG
+          pQ->count += 1;
+#endif
+          DPF(LDR "add:-pQ=%p ADD_STATE_RB added pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+          return;
         }
+
+        uint32_t add_state_rb = ADD_STATE_RB;
+        if (__atomic_compare_exchange_n(&pQ->add_state, &add_state_rb, ADD_STATE_CHANGING_TO_LL, false, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
+          uint32_t idx = __atomic_load_n(&pQ->add_link_list_idx, __ATOMIC_ACQUIRE);
+          idx ^= 1;
+          __atomic_store_n(&pQ->add_link_list_idx, idx, __ATOMIC_RELEASE);
+          __atomic_store_n(&pQ->add_state, ADD_STATE_LL, __ATOMIC_RELEASE);
+          DPF(LDR "add: pQ=%p ADD_STATE_RB changed to ADD_STATE_LL pMsg=%p idx=%d\n", ldr(), pQ, pMsg, idx);
+        } else {
+          DPF(LDR "add: pQ=%p ADD_STATE_RB other producer changing pMsg=%p\n", ldr(), pQ, pMsg);
+        }
+        break;
       }
 
-      ll_add(&pQ->link_lists[pQ->add_link_list_idx], pMsg);
+      case (ADD_STATE_CHANGING_TO_LL): {
+        // Ring buffer is full, another producer is changing to the link list
+        DPF(LDR "add: pQ=%p ADD_STATE_CHANGING_TO_LL pMsg=%p\n", ldr(), pQ, pMsg);
+        break;
+      }
+
+      case (ADD_STATE_LL): {
+        uint32_t idx = __atomic_load_n(&pQ->add_link_list_idx, __ATOMIC_ACQUIRE);
+        ll_add(&pQ->link_lists[idx], pMsg);
+
+#ifndef NDEBUG
+        pQ->count += 1;
+#endif
+        DPF(LDR "add:-pQ=%p ADD_STATE_LL pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+        return;
+      }
     }
   }
 }
@@ -103,21 +131,72 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
  */
 Msg_t* rmv(MpscFifo_t* pQ) {
   Msg_t* pMsg;
-  if (__atomic_load_n((bool*)&pQ->rmv_use_rb, __ATOMIC_ACQUIRE)) {
-    pMsg = rb_rmv(&pQ->rb);
-    if (pMsg != NULL) {
-      DPF(LDR "rmv: pQ=%p 0.0 pMsg=%p\n", ldr(), pQ, pMsg);
-      return pMsg;
+
+  while (true) {
+    switch (pQ->rmv_state) {
+      case (RMV_STATE_RB): {
+        DPF(LDR "rmv: pQ=%p RMV_STATE_RB\n", ldr(), pQ);
+        pMsg = rb_rmv(&pQ->rb);
+        if (pMsg != NULL) {
+#ifndef NDEBUG
+          pQ->count -= 1;
+#endif
+          DPF(LDR "rmv:-pQ=%p RMV_STATE_RB successful pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+          return pMsg;
+        }
+        if (ADD_STATE_RB == __atomic_load_n((bool*)&pQ->add_state, __ATOMIC_ACQUIRE)) {
+          // No messages in RB or LL
+          DPF(LDR "rmv:-pQ=%p RMV_STATE_RB, empty pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+          return NULL;
+        }
+
+        // Rb is empty but the we need to switch to RMV_STATE_LL too
+        pQ->rmv_link_list_idx = pQ->rmv_link_list_idx ^ 1;
+
+        DPF(LDR "rmv: pQ=%p RMV_STATE_RB change to RMV_STATE_LL pMsg=%p\n", ldr(), pQ, pMsg);
+        pQ->rmv_state = RMV_STATE_LL;
+
+        break;
+      }
+
+      case (RMV_STATE_CHANGING_TO_RB): {
+        DPF(LDR "rmv: pQ=%p RMV_STATE_CHANGING_TO_RB\n", ldr(), pQ);
+
+        // We've already switched add so don't do it again
+        pMsg = ll_rmv(&pQ->link_lists[pQ->rmv_link_list_idx]);
+        if (pMsg == NULL) {
+          DPF(LDR "rmv: pQ=%p RMV_STATE_CHANGING_TO_RB, LL is empty change to RMV_STATE_RB\n", ldr(), pQ);
+          // link list is still empty now switch to RB and check rb for
+          pQ->rmv_state = RMV_STATE_RB;
+        }
+
+        break;
+      }
+
+      case (RMV_STATE_LL): {
+        DPF(LDR "rmv: pQ=%p RMV_STATE_LL\n", ldr(), pQ);
+        uint32_t idx = __atomic_load_n(&pQ->rmv_link_list_idx, __ATOMIC_ACQUIRE);
+        pMsg = ll_rmv(&pQ->link_lists[idx]);
+        if (pMsg != NULL) {
+#ifndef NDEBUG
+        pQ->count -= 1;
+#endif
+          DPF(LDR "rmv:-pQ=%p RMV_STATE_LL pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+          return pMsg;
+        }
+
+        // Add and rmv will both now use RB, but with rmv there could be
+        // add's that still add to LL so we change this state to
+        // RMV_STATE_CHANGING_TO_RB
+        DPF(LDR "rmv: pQ=%p RMV_STATE_LL, change to add_state=RMV_STATE_RB\n", ldr(), pQ);
+        __atomic_store_n((bool*)&pQ->add_state, ADD_STATE_RB, __ATOMIC_RELEASE);
+
+        DPF(LDR "rmv: pQ=%p RMV_STATE_LL, change to rmv_state=RMV_STATE_CHANGING_TO_RB\n", ldr(), pQ);
+        pQ->rmv_state = RMV_STATE_CHANGING_TO_RB;
+
+        break;
+      }
     }
-    if (__atomic_load_n((bool*)&pQ->add_use_rb, __ATOMIC_ACQUIRE)) {
-      // Empty, but since its never been full we keep using rb
-      return NULL;
-    }
-    // Empty, and its was full so stop using rb
-    printf(LDR "rmv: pQ=%p 1.0 pMsg=%p\n", ldr(), pQ, pMsg);
-    __atomic_store_n((bool*)&pQ->rmv_use_rb, false, __ATOMIC_RELEASE);
-  } else {
-    pMsg = ll_rmv(&pQ->link_lists[pQ->add_link_list_idx]);
   }
 }
 

@@ -15,7 +15,7 @@
 #define DPF(format, ...)  printf(format, __VA_ARGS__)
 #endif
 
-extern _Atomic(uint64_t) volatile gTick;
+extern _Atomic(uint64_t) gTick;
 
 #define LDR "%6ld %lx  "
 #define ldr() ++gTick, pthread_self()
