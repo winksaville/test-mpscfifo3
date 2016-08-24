@@ -32,7 +32,7 @@
  * @see mpsclinklist.h
  */
 MpscLinkList_t* ll_init(MpscLinkList_t* pLl) {
-  DPF(LDR "ll_init:+pLl=%p\n", ldr(), pLl);
+  printf(LDR "ll_init:+pLl=%p\n", ldr(), pLl);
 
   pLl->cell.pNext = NULL;
   pLl->cell.pMsg = NULL;
@@ -41,7 +41,7 @@ MpscLinkList_t* ll_init(MpscLinkList_t* pLl) {
   pLl->count = 0;
   pLl->msgs_processed = 0;
 
-  DPF(LDR "ll_init:-pLl=%p\n", ldr(), pLl);
+  printf(LDR "ll_init:-pLl=%p\n", ldr(), pLl);
   return pLl;
 }
 
@@ -49,7 +49,7 @@ MpscLinkList_t* ll_init(MpscLinkList_t* pLl) {
  * @see mpsclinklist.h
  */
 uint64_t ll_deinit(MpscLinkList_t* pLl) {
-  DPF(LDR "ll_deinit:+pLl=%p\n", ldr(), pLl);
+  printf(LDR "ll_deinit:+pLl=%p\n", ldr(), pLl);
 
   uint64_t msgs_processed = pLl->msgs_processed;
   uint32_t count = pLl->count;
@@ -61,7 +61,7 @@ uint64_t ll_deinit(MpscLinkList_t* pLl) {
   pLl->count = 0;
   pLl->msgs_processed = 0;
 
-  DPF(LDR "ll_deinit:-pLl=%p count=%u msgs_processed=%lu\n", ldr(), pLl, count, msgs_processed);
+  printf(LDR "ll_deinit:-pLl=%p count=%u msgs_processed=%lu\n", ldr(), pLl, count, msgs_processed);
   return msgs_processed;
 }
 

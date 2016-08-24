@@ -5,13 +5,6 @@
 #define NDEBUG
 
 #define _DEFAULT_SOURCE
-#define USE_RMV 1
-
-#if USE_RMV
-#define RMV rmv
-#else
-#define RMV rmv_non_stalling
-#endif
 
 #include "mpscfifo.h"
 #include "msg_pool.h"
@@ -29,6 +22,8 @@
 bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
   bool error;
   Msg_t* msgs;
+  Msg_t** msg_ptrs;
+  Msg_t** owned_msgs;
   Cell_t* cells;
 
   DPF(LDR "MsgPool_init:+pool=%p msg_count=%u\n",
@@ -38,6 +33,24 @@ bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
   msgs = malloc(sizeof(Msg_t) * msg_count);
   if (msgs == NULL) {
     printf(LDR "MsgPool_init:-pool=%p ERROR unable to allocate messages, aborting msg_count=%u\n",
+        ldr(), pool, msg_count);
+    error = true;
+    goto done;
+  }
+
+  // Allocate message pointers
+  msg_ptrs = calloc(sizeof(Msg_t*), msg_count);
+  if (msg_ptrs == NULL) {
+    printf(LDR "MsgPool_init:-pool=%p ERROR unable to allocate message pointers, aborting msg_count=%u\n",
+        ldr(), pool, msg_count);
+    error = true;
+    goto done;
+  }
+
+  // Allocate owned message pointers
+  owned_msgs = malloc(sizeof(Msg_t*) * msg_count);
+  if (msg_ptrs == NULL) {
+    printf(LDR "MsgPool_init:-pool=%p ERROR unable to allocate owned messages, aborting msg_count=%u\n",
         ldr(), pool, msg_count);
     error = true;
     goto done;
@@ -64,6 +77,7 @@ bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
     DPF(LDR "MsgPool_init: add %u msg=%p%s\n", ldr(), i, msg, i == 0 ? " stub" : "");
     //msg->pPoolFifo = &pool->fifo;
     msg->pPool = pool;
+    owned_msgs[i] = msg;
     add(&pool->fifo, msg);
   }
 
@@ -80,10 +94,16 @@ done:
     pool->msgs = NULL;
     free(cells);
     pool->cells = NULL;
+    free(msg_ptrs);
+    pool->msg_ptrs = NULL;
+    free(owned_msgs);
+    pool->owned_msgs = NULL;
     pool->msg_count = 0;
   } else {
     pool->msgs = msgs;
     pool->cells = cells;
+    pool->msg_ptrs = msg_ptrs;
+    pool->owned_msgs = owned_msgs;
     pool->msg_count = msg_count;
   }
 
@@ -94,7 +114,7 @@ done:
 }
 
 uint64_t MsgPool_deinit(MsgPool_t* pool) {
-  DPF(LDR "MsgPool_deinit:+pool=%p msgs=%p fifo=%p\n", ldr(), pool, pool->msgs, &pool->fifo);
+  printf(LDR "MsgPool_deinit:+pool=%p msgs=%p fifo=%p\n", ldr(), pool, pool->msgs, &pool->fifo);
   uint64_t msgs_processed = 0;
 #if 0
   msgs_processed += pool->fifo.msgs_processed;
@@ -102,7 +122,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
 #else
   if (pool->msgs != NULL) {
     // Empty the pool
-    DPF(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+    printf(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
         ldr(), pool, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
     for (uint32_t i = 0; i < pool->msg_count; i++) {
       Msg_t* msg;
@@ -110,18 +130,19 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
       // Wait until this is returned
       // TODO: Bug it may never be returned!
       bool once = false;
-      while ((msg = RMV(&pool->fifo)) == NULL) {
+      while ((msg = rmv(&pool->fifo)) == NULL) {
         if (!once) {
           once = true;
-          DPF(LDR "MsgPool_deinit: waiting for %u\n", ldr(), i);
+          printf(LDR "MsgPool_deinit: waiting for %u\n", ldr(), i);
         }
         sched_yield();
       }
 
+      pool->msg_ptrs[i] = msg;
       DPF(LDR "MsgPool_deinit: removed %u msg=%p\n", ldr(), i, msg);
     }
 
-    DPF(LDR "MsgPool_deinit: pool=%p deinitMpscFifo pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+    printf(LDR "MsgPool_deinit: pool=%p deinitMpscFifo pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
         ldr(), pool, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
     msgs_processed = deinitMpscFifo(&pool->fifo);
 
@@ -136,7 +157,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
     //pool->cells = NULL;
     pool->msg_count = 0;
   }
-  DPF(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+  printf(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
         ldr(), pool, msgs_processed, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
 #endif
   return msgs_processed;
@@ -144,13 +165,15 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
 
 Msg_t* MsgPool_get_msg(MsgPool_t* pool) {
   DPF(LDR "MsgPool_get_msg:+pool=%p\n", ldr(), pool);
-  Msg_t* msg = RMV(&pool->fifo);
+  Msg_t* msg = rmv(&pool->fifo);
   if (msg != NULL) {
     msg->pRspQ = NULL;
     msg->arg1 = 0;
     msg->arg2 = 0;
+    msg->last_MsgPool_get_msg_pthread_id = pthread_self();
+    msg->last_MsgPool_get_msg_tick = gTick++;
     pool->get_msg_count += 1;
-    DPF(LDR "MsgPool_get_msg: pool=%p got msg=%p pool=%p\n", ldr(), pool, msg, msg->pPool);
+    DPF(LDR "MsgPool_get_msg: pool=%p got msg=%p pool=%p get_msg_count=%d\n", ldr(), pool, msg, msg->pPool, pool->get_msg_count);
   }
   DPF(LDR "MsgPool_get_msg:-pool=%p msg=%p\n", ldr(), pool, msg);
   return msg;
@@ -159,9 +182,11 @@ Msg_t* MsgPool_get_msg(MsgPool_t* pool) {
 void MsgPool_ret_msg(MsgPool_t* pool, Msg_t* pMsg) {
   DPF(LDR "MsgPool_ret_msg:+pool=%p msg=%p\n", ldr(), pool, pMsg);
   if (pMsg != NULL) {
+    pMsg->last_MsgPool_ret_msg_pthread_id = pthread_self();
+    pMsg->last_MsgPool_ret_msg_tick = gTick++;
     add(&pool->fifo, pMsg);
     pool->ret_msg_count += 1;
-    DPF(LDR "MsgPool_ret_msg: pool=%p got msg=%p pool=%p\n", ldr(), pool, msg, msg->pPool);
+    DPF(LDR "MsgPool_ret_msg: pool=%p got msg=%p pool=%p ret_msg_count=%d\n", ldr(), pool, pMsg, pMsg->pPool, pool->ret_msg_count);
   }
   DPF(LDR "MsgPool_ret_msg:-pool=%p msg=%p\n", ldr(), pool, pMsg);
 }

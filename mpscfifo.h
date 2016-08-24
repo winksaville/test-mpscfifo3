@@ -44,10 +44,10 @@ typedef struct MpscFifo_t {
 
   MpscLinkList_t link_lists[2];
 
-  bool add_link_list_idx;
-  bool rmv_link_list_idx;
+  uint32_t add_link_list_idx;
+  uint32_t rmv_link_list_idx;
 
-  _Atomic(int32_t) count;
+  volatile _Atomic(int32_t) count;
 } MpscFifo_t;
   
 /**

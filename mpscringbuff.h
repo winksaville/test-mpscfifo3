@@ -26,8 +26,7 @@ typedef struct MpscRingBuff_t {
   uint32_t mask;
   Cell_t* ring_buffer;
   volatile _Atomic(uint32_t) count;
-  volatile _Atomic(uint32_t) empty;
-  uint64_t msgs_processed;
+  volatile _Atomic(uint64_t) msgs_processed;
 } MpscRingBuff_t;
 
 /**

@@ -13,6 +13,8 @@
 
 typedef struct MsgPool_t {
   Msg_t* msgs;
+  Msg_t** msg_ptrs;
+  Msg_t** owned_msgs;
   Cell_t* cells;
   uint32_t msg_count;
   volatile _Atomic(uint32_t) get_msg_count;

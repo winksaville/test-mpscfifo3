@@ -5,13 +5,6 @@
 #define NDEBUG
 
 #define _DEFAULT_SOURCE
-#define USE_RMV 1
-
-#if USE_RMV
-#define RMV rmv
-#else
-#define RMV rmv_non_stalling
-#endif
 
 #include "mpscfifo.h"
 #include "msg_pool.h"
@@ -131,7 +124,7 @@ static void* client(void* p) {
 
 
   // Init local msg pool
-  DPF(LDR "client: init msg pool=%p msg_count=%u\n", ldr(), &cp->pool, cp->msg_count);
+  printf(LDR "client: init msg pool=%p msg_count=%u\n", ldr(), &cp->pool, cp->msg_count);
   bool error = MsgPool_init(&cp->pool, cp->msg_count);
   if (error) {
     DPF(LDR "client: param=%p ERROR unable to create msgs for pool\n", ldr(), p);
@@ -140,7 +133,7 @@ static void* client(void* p) {
 
   // Init cmdFifo
   initMpscFifo(&cp->cmdFifo);
-  DPF(LDR "client: param=%p cp->cmdFifo=%p count=%d\n", ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
+  printf(LDR "client: param=%p cp->cmdFifo=%p count=%d\n", ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
 
 
   // Signal we're ready
@@ -150,13 +143,8 @@ static void* client(void* p) {
   // do the work and signal work is complete.
   while (true) {
     DPF(LDR "client: param=%p waiting\n", ldr(), p);
-#if USE_RMV == 1
     sem_wait(&cp->sem_waiting);
     while((msg = rmv(&cp->cmdFifo)) != NULL) {
-#else
-    sched_yield();
-    while((msg = rmv_non_stalling(&cp->cmdFifo)) != NULL) {
-#endif
       if (msg != NULL) {
         cp->cmds_processed += 1;
         DPF(LDR "client:^param=%p msg=%p arg1=%lu cmds_processed=%lu\n",
@@ -226,30 +214,32 @@ static void* client(void* p) {
         }
       } else {
         cp->error_count += 1;
-        DPF(LDR "client: param=%p ERROR msg=NULL\n", ldr(), p);
+        printf(LDR "client: param=%p ERROR msg=NULL\n", ldr(), p);
       }
     }
   }
 
 done:
   // Flush any messages in the cmdFifo
-  DPF(LDR "client: param=%p done, flushing fifo count=%d\n", ldr(), p, cp->cmdFifo.count);
+  printf(LDR "client: param=%p done, flushing cmdFifo=%p count=%d\n",
+      ldr(), p, &cp->cmdFifo, cp->cmdFifo.count);
   uint32_t unprocessed = 0;
-  while ((msg = RMV(&cp->cmdFifo)) != NULL) {
-    DPF(LDR "client: param=%p ret msg=%p\n", ldr(), p, msg);
+  while ((msg = rmv(&cp->cmdFifo)) != NULL) {
+    printf(LDR "client: param=%p ret msg=%p\n", ldr(), p, msg);
     unprocessed += 1;
     ret_msg(msg);
   }
 
   // deinit cmd fifo
-  DPF(LDR "client: param=%p deinit cmdFifo=%p count=%d unprocessed=%u\n",ldr(), p, &cp->cmdFifo, cp->cmdFifo.count, unprocessed);
+  printf(LDR "client: param=%p deinit cmdFifo=%p count=%d unprocessed=%u\n",ldr(), p, &cp->cmdFifo, cp->cmdFifo.count, unprocessed);
   cp->msgs_processed = deinitMpscFifo(&cp->cmdFifo);
+  printf(LDR "client: param=%p after deinit cmds_processed=%lu msgs_processed=%lu\n",ldr(), p, cp->cmds_processed, cp->msgs_processed);
 
   // deinit msg pool
-  DPF(LDR "client: param=%p deinit msg pool=%p msg_count=%u\n", ldr(), p, &cp->pool, cp->pool.msg_count);
+  printf(LDR "client: param=%p deinit msg pool=%p msg_count=%u\n", ldr(), p, &cp->pool, cp->pool.msg_count);
   cp->msgs_processed += MsgPool_deinit(&cp->pool);
 
-  DPF(LDR "client:-param=%p error_count=%lu\n", ldr(), p, cp->error_count);
+  printf(LDR "client:-param=%p error_count=%lu cmds_processed=%lu\n", ldr(), p, cp->error_count, cp->cmds_processed);
   return NULL;
 }
 
@@ -262,7 +252,7 @@ uint32_t wait_for_rsp(MpscFifo_t* fifo, uint64_t rsp_expected, void* client, uin
 
   // TODO: Add MpscFifo_t.sem_waiting??
   bool once = false;
-  while ((msg = RMV(fifo)) == NULL) {
+  while ((msg = rmv(fifo)) == NULL) {
     if (!once) {
       once = true;
       DPF(LDR "wait_for_rsp: fifo=%p waiting for arg1=%lu client[%u]=%p\n",
@@ -387,7 +377,7 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     for (uint32_t c = 0; c < clients_created; c++) {
       // Test both flavors of rmv
       Msg_t* msg;
-      msg = RMV(&pool.fifo);
+      msg = MsgPool_get_msg(&pool);
 
       if (msg != NULL) {
         ClientParams* client = &clients[c];
@@ -497,16 +487,16 @@ done:
     }
     cmds_processed += client->cmds_processed;
     msgs_processed += client->msgs_processed;
-    DPF(LDR "multi_thread_msg: clients[%u]=%p msgs_processed=%lu error_count=%lu\n",
-        ldr(), i, (void*)client, client->msgs_processed, client->error_count);
+    printf(LDR "multi_thread_msg: clients[%u]=%p cmds_processed=%lu msgs_processed=%lu error_count=%lu\n",
+        ldr(), i, (void*)client, client->cmds_processed, client->msgs_processed, client->error_count);
   }
 
   // Deinit the cmdFifo
-  DPF(LDR "multi_thread_msg: deinit cmdFifo=%p\n", ldr(), &cmdFifo);
+  printf(LDR "multi_thread_msg: deinit cmdFifo=%p\n", ldr(), &cmdFifo);
   msgs_processed += deinitMpscFifo(&cmdFifo);
 
   // Deinit the msg pool
-  DPF(LDR "multi_thread_msg: deinit msg pool=%p\n", ldr(), &pool);
+  printf(LDR "multi_thread_msg: deinit msg pool=%p\n", ldr(), &pool);
   msgs_processed += MsgPool_deinit(&pool);
 
   clock_gettime(CLOCK_REALTIME, &time_complete);

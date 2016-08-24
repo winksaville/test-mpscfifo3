@@ -19,7 +19,7 @@ typedef struct MpscLinkList_t {
   Cell_t* pHead __attribute__(( aligned (64) ));
   Cell_t* pTail __attribute__(( aligned (64) ));
   volatile _Atomic(uint32_t) count;
-  uint64_t msgs_processed;
+  volatile _Atomic(uint64_t) msgs_processed;
   Cell_t cell;
 } MpscLinkList_t;
 

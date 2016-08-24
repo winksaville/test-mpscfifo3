@@ -28,6 +28,25 @@ typedef struct Msg_t {
   MpscFifo_t* pRspQ;
   uint64_t arg1;
   uint64_t arg2;
+
+  MpscFifo_t* last_pRspQ;
+  uint64_t last_arg1;
+  uint64_t last_arg2;
+  uint64_t last_MsgPool_get_msg_pthread_id;
+  uint64_t last_MsgPool_get_msg_tick;
+  uint64_t last_MsgPool_ret_msg_pthread_id;
+  uint64_t last_MsgPool_ret_msg_tick;
+
+  uint64_t last_fifo_add_msg_pthread_id;
+  MpscFifo_t* last_fifo_add_msg_fifo;
+  uint64_t last_fifo_add_msg_state;
+  uint64_t last_fifo_add_msg_ll_idx;
+  uint64_t last_fifo_add_msg_tick;
+  uint64_t last_fifo_rmv_msg_pthread_id;
+  MpscFifo_t* last_fifo_rmv_msg_fifo;
+  uint64_t last_fifo_rmv_msg_state;
+  uint64_t last_fifo_rmv_msg_tick;
+
   uint8_t data[];
 } Msg_t;
 
