@@ -59,6 +59,7 @@ MpscFifo_t* initMpscFifo(MpscFifo_t* pQ) {
   rb_init(&pQ->rb, 0x2); //0x100);
   pQ->add_state = ADD_STATE_RB;
   pQ->rmv_state = RMV_STATE_RB;
+  pQ->add_pending_count = 0;
   pQ->add_link_list_idx = 0;
   pQ->rmv_link_list_idx = 0;
   pQ->count = 0;
@@ -85,6 +86,7 @@ uint64_t deinitMpscFifo(MpscFifo_t* pQ) {
  * @see mpscifo.h
  */
 void add(MpscFifo_t* pQ, Msg_t* pMsg) {
+  pQ->add_pending_count += 1;
   while (true) {
     uint32_t add_state = __atomic_load_n(&pQ->add_state, __ATOMIC_ACQUIRE);
     switch (add_state) {
@@ -95,12 +97,14 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
 #if USE_COUNT
           pQ->count += 1;
 #endif
-          DPF(LDR "add:-pQ=%p ADD_STATE_RB added pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
           pMsg->last_fifo_add_msg_pthread_id = pthread_self();
           pMsg->last_fifo_add_msg_fifo = pQ;
           pMsg->last_fifo_add_msg_state = ADD_STATE_RB;
           pMsg->last_fifo_add_msg_ll_idx = (uint64_t)-1;
           pMsg->last_fifo_add_msg_tick = gTick++;
+          pQ->add_pending_count -= 1;
+          DPF(LDR "add:-pQ=%p ADD_STATE_RB added pMsg=%p count=%d add_pending_count=%d\n",
+              ldr(), pQ, pMsg, pQ->count, pQ->add_pending_count);
           return;
         }
 
@@ -130,12 +134,14 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
 #if USE_COUNT
         pQ->count += 1;
 #endif
-        DPF(LDR "add:-pQ=%p ADD_STATE_LL pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
         pMsg->last_fifo_add_msg_pthread_id = pthread_self();
         pMsg->last_fifo_add_msg_fifo = pQ;
         pMsg->last_fifo_add_msg_state = ADD_STATE_LL;
         pMsg->last_fifo_add_msg_ll_idx = idx;
         pMsg->last_fifo_add_msg_tick = gTick++;
+        pQ->add_pending_count -= 1;
+        DPF(LDR "add:-pQ=%p ADD_STATE_LL pMsg=%p count=%d add_pending_count=%d\n",
+            ldr(), pQ, pMsg, pQ->count, pQ->add_pending_count);
         return;
       }
     }
@@ -164,7 +170,7 @@ Msg_t* rmv(MpscFifo_t* pQ) {
           pMsg->last_fifo_rmv_msg_tick = gTick++;
           return pMsg;
         }
-        if (ADD_STATE_RB == __atomic_load_n((bool*)&pQ->add_state, __ATOMIC_ACQUIRE)) {
+        if (ADD_STATE_RB == __atomic_load_n(&pQ->add_state, __ATOMIC_ACQUIRE)) {
           // No messages in RB or LL
           DPF(LDR "rmv:-pQ=%p RMV_STATE_RB, empty pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
           return NULL;
@@ -179,11 +185,25 @@ Msg_t* rmv(MpscFifo_t* pQ) {
         break;
       }
 
+      case (RMV_STATE_CHANGING_ADD_STATE_TO_ADD_STATE_RB): {
+        DPF(LDR "rmv: pQ=%p RMV_STATE_CHANGING_ADD_STATE_TO_ADD_STATE_RB\n", ldr(), pQ);
+        uint32_t add_state_ll = ADD_STATE_LL;
+        if (__atomic_compare_exchange_n(&pQ->add_state, &add_state_ll, ADD_STATE_RB, false, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
+          DPF(LDR "rmv: pQ=%p add_state == ADD_STATE_RB\n", ldr(), pQ);
+          pQ->rmv_state = RMV_STATE_CHANGING_TO_RB;
+        } else {
+          DPF(LDR "rmv: pQ=%p add_state != ADD_STATE_LL\n", ldr(), pQ);
+          sched_yield();
+        }
+        break;
+      }
+
       case (RMV_STATE_CHANGING_TO_RB): {
         DPF(LDR "rmv: pQ=%p RMV_STATE_CHANGING_TO_RB\n", ldr(), pQ);
 
         // Return any lingering messages from the link list
         pMsg = ll_rmv(&pQ->link_lists[pQ->rmv_link_list_idx]);
+        uint32_t add_pending_count = 0;
         if (pMsg != NULL) {
 #if USE_COUNT
           pQ->count -= 1;
@@ -194,10 +214,13 @@ Msg_t* rmv(MpscFifo_t* pQ) {
           pMsg->last_fifo_rmv_msg_state = RMV_STATE_CHANGING_TO_RB;
           pMsg->last_fifo_rmv_msg_tick = gTick++;
           return pMsg;
-        } else {
-          DPF(LDR "rmv: pQ=%p RMV_STATE_CHANGING_TO_RB, LL is empty change to RMV_STATE_RB\n", ldr(), pQ);
-          // link list is empty, now switch to RB and check rb for
+        } else if (0 == (add_pending_count = pQ->add_pending_count)) {
+          DPF(LDR "rmv: pQ=%p add_state == ADD_STATE_RB and LL is empty change to RMV_STATE_RB\n", ldr(), pQ);
+          // link list is empty, now switch to RB
           pQ->rmv_state = RMV_STATE_RB;
+        } else {
+          DPF(LDR "rmv: pQ=%p add_pending_count=%d != 0\n", ldr(), pQ, add_pending_count);
+          sched_yield();
         }
 
         break;
@@ -219,15 +242,8 @@ Msg_t* rmv(MpscFifo_t* pQ) {
           return pMsg;
         }
 
-        // Add and rmv will both now use RB, but with rmv needs to
-        // "linger" using the current rmv_link_list_idx until its
-        // empty so we'll change the rmv_state to RMV_STATE_CHANGING_TO_RB
-        // and add_state to ADD_STATE_RB.
-        DPF(LDR "rmv: pQ=%p RMV_STATE_LL, change to add_state=ADD_STATE_RB\n", ldr(), pQ);
-        __atomic_store_n((bool*)&pQ->add_state, ADD_STATE_RB, __ATOMIC_RELEASE);
-
-        DPF(LDR "rmv: pQ=%p RMV_STATE_LL, change to rmv_state=RMV_STATE_CHANGING_TO_RB\n", ldr(), pQ);
-        pQ->rmv_state = RMV_STATE_CHANGING_TO_RB;
+        DPF(LDR "rmv: pQ=%p RMV_STATE_LL, change rmv_state=RMV_STATE_CHANGING_TO_RB\n", ldr(), pQ);
+        pQ->rmv_state = RMV_STATE_CHANGING_ADD_STATE_TO_ADD_STATE_RB;
 
         break;
       }
