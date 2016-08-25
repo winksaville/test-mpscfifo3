@@ -1,42 +1,53 @@
 test mpscfifo2
 ===
 
-This will combines a MspcRingBuffer and MpscLinkList into an MpscFifo.
+This combines a MspcRingBuffer and an MpscLinkList into an MpscFifo.
 The goal was that it would be the performance of the ring buffer when
-the fifo was mostly empty and no slower when it large numbers of items
-were on the list.
+the fifo was mostly empty and no slower when there were large numbers
+of items were on the list.
 
-I failed, its significantly slower. I see 61.5ns/op when using perf
+I failed, its significantly slower. I see 44.2ns/op when using perf
 for the "empty" case compared to 14ns/op mpscfifo2 and 11.5ns for
 mpscringbuff.
 ```
-wink@wink-desktop:~/prgs/test-mpscfifo3 (wip-mpsclinklist)
-$ ./simple 100000000
+wink@wink-desktop:~/prgs/test-mpscfifo3 (master)
+$ make clean ; make CC=clang ; ./simple 100000000
+clang -Wall -std=c11 -O2 -g -pthread -c test.c -o test.o
+clang -Wall -std=c11 -O2 -g -pthread -c mpscfifo.c -o mpscfifo.o
+clang -Wall -std=c11 -O2 -g -pthread -c mpscringbuff.c -o mpscringbuff.o
+clang -Wall -std=c11 -O2 -g -pthread -c mpsclinklist.c -o mpsclinklist.o
+clang -Wall -std=c11 -O2 -g -pthread -c msg_pool.c -o msg_pool.o
+clang -Wall -std=c11 -O2 -g -pthread -c diff_timespec.c -o diff_timespec.o
+clang -Wall -std=c11 -O2 -g -pthread test.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o test
+objdump -d test > test.txt
+clang -Wall -std=c11 -O2 -g -pthread -c simple.c -o simple.o
+clang -Wall -std=c11 -O2 -g -pthread simple.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o simple
+objdump -d simple > simple.txt
 test loops=100000000
-     1 7f81e30c0700  simple:+
-     2 7f81e30c0700  simple: init cmdFifo=0x7fff08006580
-     3 7f81e30c0700  simple: remove from empty cmdFifo=0x7fff08006580
-     4 7f81e30c0700  simple: add a message to empty cmdFifo=0x7fff08006580
-     5 7f81e30c0700  simple: remove from with one item in cmdFifo=0x7fff08006580
-     6 7f81e30c0700  simple: add msg1 to empty cmdFifo=0x7fff08006580
-     7 7f81e30c0700  simple: add msg2 to non-empty cmdFifo=0x7fff08006580
-     8 7f81e30c0700  simple: add msg3 to non-empty cmdFifo=0x7fff08006580
-     9 7f81e30c0700  simple: remove msg1 from cmdFifo=0x7fff08006580
-    10 7f81e30c0700  simple: remove msg2 from cmdFifo=0x7fff08006580
-    11 7f81e30c0700  simple: remove msg3 from cmdFifo=0x7fff08006580
-    12 7f81e30c0700  simple: remove from empty cmdFifo=0x7fff08006580
-    13 7f81e30c0700  simple:-error=0
+     1 7f418cd22700  simple:+
+     2 7f418cd22700  simple: init cmdFifo=0x7ffef2321c00
+     3 7f418cd22700  simple: remove from empty cmdFifo=0x7ffef2321c00
+     4 7f418cd22700  simple: add a message to empty cmdFifo=0x7ffef2321c00
+     5 7f418cd22700  simple: remove from with one item in cmdFifo=0x7ffef2321c00
+     6 7f418cd22700  simple: add msg1 to empty cmdFifo=0x7ffef2321c00
+     7 7f418cd22700  simple: add msg2 to non-empty cmdFifo=0x7ffef2321c00
+     8 7f418cd22700  simple: add msg3 to non-empty cmdFifo=0x7ffef2321c00
+     9 7f418cd22700  simple: remove msg1 from cmdFifo=0x7ffef2321c00
+    10 7f418cd22700  simple: remove msg2 from cmdFifo=0x7ffef2321c00
+    11 7f418cd22700  simple: remove msg3 from cmdFifo=0x7ffef2321c00
+    12 7f418cd22700  simple: remove from empty cmdFifo=0x7ffef2321c00
+    13 7f418cd22700  simple:-error=0
 
-    14 7f81e30c0700  perf:+loops=100000000
-    15 7f81e30c0700  perf: init cmdFifo=0x7fff08006580
-    16 7f81e30c0700  perf: remove from empty cmdFifo=0x7fff08006580
-    17 7f81e30c0700  perf: add_rmv from empty fifo  processing=6.098s
-    18 7f81e30c0700  perf: add rmv from empty fifo ops_per_sec=16399446.132
-    19 7f81e30c0700  perf: add rmv from empty fifo   ns_per_op=61.0ns
-    20 7f81e30c0700  perf: add_rmv from non-empty fifo  processing=12.300s
-    21 7f81e30c0700  perf: add rmv from non-empty fifo ops_per_sec=16260514.569
-    22 7f81e30c0700  perf: add rmv from non-empty fifo   ns_per_op=61.5ns
-    23 7f81e30c0700  perf:-error=0
+    14 7f418cd22700  perf:+loops=100000000
+    15 7f418cd22700  perf: init cmdFifo=0x7ffef2321bc0
+    16 7f418cd22700  perf: remove from empty cmdFifo=0x7ffef2321bc0
+    17 7f418cd22700  perf: add_rmv from empty fifo  processing=4.470s
+    18 7f418cd22700  perf: add rmv from empty fifo ops_per_sec=22373080.984
+    19 7f418cd22700  perf: add rmv from empty fifo   ns_per_op=44.7ns
+    20 7f418cd22700  perf: add_rmv from non-empty fifo  processing=8.843s
+    21 7f418cd22700  perf: add rmv from non-empty fifo ops_per_sec=22616815.818
+    22 7f418cd22700  perf: add rmv from non-empty fifo   ns_per_op=44.2ns
+    23 7f418cd22700  perf:-error=0
 
 Success
 
@@ -98,27 +109,37 @@ Success
 ```
 
 When using the test app it wasn't quite as bad but still bad. We see
-49.2ns/op for this, 21.4ns/op for mpscfifo2 and 17.9ns/op for
+42.3ns/op for this, 21.4ns/op for mpscfifo2 and 17.9ns/op for
 the ringbuffer:
 ```
-wink@wink-desktop:~/prgs/test-mpscfifo3 (wip-mpsclinklist)
-$ make ; ./test 12 10000000 0x100000
-make: Nothing to be done for 'all'.
+wink@wink-desktop:~/prgs/test-mpscfifo3 (master)
+$ make clean ; make CC=clang ; ./test 12 10000000 0x100000
+clang -Wall -std=c11 -O2 -g -pthread -c test.c -o test.o
+clang -Wall -std=c11 -O2 -g -pthread -c mpscfifo.c -o mpscfifo.o
+clang -Wall -std=c11 -O2 -g -pthread -c mpscringbuff.c -o mpscringbuff.o
+clang -Wall -std=c11 -O2 -g -pthread -c mpsclinklist.c -o mpsclinklist.o
+clang -Wall -std=c11 -O2 -g -pthread -c msg_pool.c -o msg_pool.o
+clang -Wall -std=c11 -O2 -g -pthread -c diff_timespec.c -o diff_timespec.o
+clang -Wall -std=c11 -O2 -g -pthread test.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o test
+objdump -d test > test.txt
+clang -Wall -std=c11 -O2 -g -pthread -c simple.c -o simple.o
+clang -Wall -std=c11 -O2 -g -pthread simple.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o simple
+objdump -d simple > simple.txt
 test client_count=12 loops=10000000 msg_count=1048576
-     1 7fa5fea8e700  multi_thread_msg:+client_count=12 loops=10000000 msg_count=1048576
-     2 7fa5fea8e700  multi_thread_msg: cmds_processed=485569040 msgs_processed=984769724 mt_msgs_sent=41251702 mt_no_msgs=78748298
-     3 7fa5fea8e700  startup=0.980120
-     4 7fa5fea8e700  looping=44.973266
-     5 7fa5fea8e700  disconnecting=3.129104
-     6 7fa5fea8e700  stopping=0.015235
-     7 7fa5fea8e700  complete=0.344748
-     8 7fa5fea8e700  processing=48.462s
-     9 7fa5fea8e700  cmds_per_sec=10019510.164
-    10 7fa5fea8e700  ns_per_cmd=99.8ns
-    11 7fa5fea8e700  msgs_per_sec=20320303.492
-    12 7fa5fea8e700  ns_per_msg=49.2ns
-    13 7fa5fea8e700  total=49.442
-    14 7fa5fea8e700  multi_thread_msg:-error=0
+     1 7f6cb02ac700  multi_thread_msg:+client_count=12 loops=10000000 msg_count=1048576
+     2 7f6cb02ac700  multi_thread_msg: cmds_processed=534483164 msgs_processed=1082597972 mt_msgs_sent=45360012 mt_no_msgs=74639988
+     3 7f6cb02ac700  startup=1.194188
+     4 7f6cb02ac700  looping=41.247790
+     5 7f6cb02ac700  disconnecting=4.303393
+     6 7f6cb02ac700  stopping=0.029284
+     7 7f6cb02ac700  complete=0.240067
+     8 7f6cb02ac700  processing=45.821s
+     9 7f6cb02ac700  cmds_per_sec=11664708.051
+    10 7f6cb02ac700  ns_per_cmd=85.7ns
+    11 7f6cb02ac700  msgs_per_sec=23626916.863
+    12 7f6cb02ac700  ns_per_msg=42.3ns
+    13 7f6cb02ac700  total=47.015
+    14 7f6cb02ac700  multi_thread_msg:-error=0
 
 Success
 wink@wink-desktop:~/prgs/test-mpscfifo3 (wip-mpsclinklist)
@@ -165,3 +186,79 @@ test client_count=12 loops=10000000 msg_count=1048576
     14 7fb6be695700  multi_thread_msg:-error=0
 
 Success
+```
+
+It should be noted that gcc is slightly faster than clang,
+40.5ns vs 44.2ns for perf and the same seed for test 42.1ns vs 42.3ns.
+```
+wink@wink-desktop:~/prgs/test-mpscfifo3 (master)
+$ make clean ; make CC=gcc ; ./simple 100000000
+gcc -Wall -std=c11 -O2 -g -pthread -c test.c -o test.o
+gcc -Wall -std=c11 -O2 -g -pthread -c mpscfifo.c -o mpscfifo.o
+gcc -Wall -std=c11 -O2 -g -pthread -c mpscringbuff.c -o mpscringbuff.o
+gcc -Wall -std=c11 -O2 -g -pthread -c mpsclinklist.c -o mpsclinklist.o
+gcc -Wall -std=c11 -O2 -g -pthread -c msg_pool.c -o msg_pool.o
+gcc -Wall -std=c11 -O2 -g -pthread -c diff_timespec.c -o diff_timespec.o
+gcc -Wall -std=c11 -O2 -g -pthread test.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o test
+objdump -d test > test.txt
+gcc -Wall -std=c11 -O2 -g -pthread -c simple.c -o simple.o
+gcc -Wall -std=c11 -O2 -g -pthread simple.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o simple
+objdump -d simple > simple.txt
+test loops=100000000
+     1 7f5e8eb10700  simple:+
+     2 7f5e8eb10700  simple: init cmdFifo=0x7ffda6fd4440
+     3 7f5e8eb10700  simple: remove from empty cmdFifo=0x7ffda6fd4440
+     4 7f5e8eb10700  simple: add a message to empty cmdFifo=0x7ffda6fd4440
+     5 7f5e8eb10700  simple: remove from with one item in cmdFifo=0x7ffda6fd4440
+     6 7f5e8eb10700  simple: add msg1 to empty cmdFifo=0x7ffda6fd4440
+     7 7f5e8eb10700  simple: add msg2 to non-empty cmdFifo=0x7ffda6fd4440
+     8 7f5e8eb10700  simple: add msg3 to non-empty cmdFifo=0x7ffda6fd4440
+     9 7f5e8eb10700  simple: remove msg1 from cmdFifo=0x7ffda6fd4440
+    10 7f5e8eb10700  simple: remove msg2 from cmdFifo=0x7ffda6fd4440
+    11 7f5e8eb10700  simple: remove msg3 from cmdFifo=0x7ffda6fd4440
+    12 7f5e8eb10700  simple: remove from empty cmdFifo=0x7ffda6fd4440
+    13 7f5e8eb10700  simple:-error=0
+
+    14 7f5e8eb10700  perf:+loops=100000000
+    15 7f5e8eb10700  perf: init cmdFifo=0x7ffda6fd4440
+    16 7f5e8eb10700  perf: remove from empty cmdFifo=0x7ffda6fd4440
+    17 7f5e8eb10700  perf: add_rmv from empty fifo  processing=4.077s
+    18 7f5e8eb10700  perf: add rmv from empty fifo ops_per_sec=24525968.362
+    19 7f5e8eb10700  perf: add rmv from empty fifo   ns_per_op=40.8ns
+    20 7f5e8eb10700  perf: add_rmv from non-empty fifo  processing=8.092s
+    21 7f5e8eb10700  perf: add rmv from non-empty fifo ops_per_sec=24716679.622
+    22 7f5e8eb10700  perf: add rmv from non-empty fifo   ns_per_op=40.5ns
+    23 7f5e8eb10700  perf:-error=0
+
+Success
+wink@wink-desktop:~/prgs/test-mpscfifo3 (master)
+$ make clean ; make CC=gcc ; ./test 12 10000000 0x100000
+gcc -Wall -std=c11 -O2 -g -pthread -c test.c -o test.o
+gcc -Wall -std=c11 -O2 -g -pthread -c mpscfifo.c -o mpscfifo.o
+gcc -Wall -std=c11 -O2 -g -pthread -c mpscringbuff.c -o mpscringbuff.o
+gcc -Wall -std=c11 -O2 -g -pthread -c mpsclinklist.c -o mpsclinklist.o
+gcc -Wall -std=c11 -O2 -g -pthread -c msg_pool.c -o msg_pool.o
+gcc -Wall -std=c11 -O2 -g -pthread -c diff_timespec.c -o diff_timespec.o
+gcc -Wall -std=c11 -O2 -g -pthread test.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o test
+objdump -d test > test.txt
+gcc -Wall -std=c11 -O2 -g -pthread -c simple.c -o simple.o
+gcc -Wall -std=c11 -O2 -g -pthread simple.o mpscfifo.o mpscringbuff.o mpsclinklist.o msg_pool.o diff_timespec.o -o simple
+objdump -d simple > simple.txt
+test client_count=12 loops=10000000 msg_count=1048576
+     1 7fce4bfb9700  multi_thread_msg:+client_count=12 loops=10000000 msg_count=1048576
+     2 7fce4bfb9700  multi_thread_msg: cmds_processed=520599457 msgs_processed=1054830558 mt_msgs_sent=44200694 mt_no_msgs=75799306
+     3 7fce4bfb9700  startup=1.145295
+     4 7fce4bfb9700  looping=40.488684
+     5 7fce4bfb9700  disconnecting=3.610894
+     6 7fce4bfb9700  stopping=0.012393
+     7 7fce4bfb9700  complete=0.270340
+     8 7fce4bfb9700  processing=44.382s
+     9 7fce4bfb9700  cmds_per_sec=11729886.013
+    10 7fce4bfb9700  ns_per_cmd=85.3ns
+    11 7fce4bfb9700  msgs_per_sec=23766913.396
+    12 7fce4bfb9700  ns_per_msg=42.1ns
+    13 7fce4bfb9700  total=45.528
+    14 7fce4bfb9700  multi_thread_msg:-error=0
+
+Success
+```

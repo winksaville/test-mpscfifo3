@@ -3,7 +3,7 @@
 
 CC=clang
 
-CC_FLAGS = -Wall -std=c11 -O0 -g -pthread
+CC_FLAGS = -Wall -std=c11 -O2 -g -pthread
 all: test simple
 
 diff_timespec.o : diff_timespec.c diff_timespec.h dpf.h Makefile

@@ -21,10 +21,10 @@
 
 bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
   bool error;
-  Msg_t* msgs;
-  Msg_t** msg_ptrs;
-  Msg_t** owned_msgs;
-  Cell_t* cells;
+  Msg_t* msgs = NULL;
+  Msg_t** msg_ptrs = NULL;
+  Msg_t** owned_msgs = NULL;
+  Cell_t* cells = NULL;
 
   DPF(LDR "MsgPool_init:+pool=%p msg_count=%u\n",
       ldr(), pool, msg_count);

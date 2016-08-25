@@ -23,7 +23,7 @@
 
 #define _DEFAULT_SOURCE
 
-#if 0 //defined(NDEBUG)
+#if defined(NDEBUG)
 #define USE_COUNT 0
 #else
 #define USE_COUNT 1
@@ -112,7 +112,7 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
         }
 
         uint32_t add_state_rb = ADD_STATE_RB;
-        if (__atomic_compare_exchange_n(&pQ->add_state, &add_state_rb, ADD_STATE_CHANGING_TO_LL, false, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
+        if (__atomic_compare_exchange_n(&pQ->add_state, &add_state_rb, ADD_STATE_CHANGING_TO_LL, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
           uint32_t idx = __atomic_load_n(&pQ->add_link_list_idx, __ATOMIC_ACQUIRE);
           idx ^= 1;
           __atomic_store_n(&pQ->add_link_list_idx, idx, __ATOMIC_RELEASE);
@@ -195,7 +195,7 @@ Msg_t* rmv(MpscFifo_t* pQ) {
       case (RMV_STATE_CHANGING_ADD_STATE_TO_ADD_STATE_RB): {
         DPF(LDR "rmv: pQ=%p RMV_STATE_CHANGING_ADD_STATE_TO_ADD_STATE_RB\n", ldr(), pQ);
         uint32_t add_state_ll = ADD_STATE_LL;
-        if (__atomic_compare_exchange_n(&pQ->add_state, &add_state_ll, ADD_STATE_RB, false, __ATOMIC_ACQ_REL, __ATOMIC_RELEASE)) {
+        if (__atomic_compare_exchange_n(&pQ->add_state, &add_state_ll, ADD_STATE_RB, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
           DPF(LDR "rmv: pQ=%p add_state == ADD_STATE_RB\n", ldr(), pQ);
           pQ->rmv_state = RMV_STATE_CHANGING_TO_RB;
         } else {
