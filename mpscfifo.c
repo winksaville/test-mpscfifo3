@@ -53,10 +53,11 @@
  * @see mpscfifo.h
  */
 MpscFifo_t* initMpscFifo(MpscFifo_t* pQ) {
-  printf(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
+  DPF(LDR "initMpscFifo:*pQ=%p\n", ldr(), pQ);
   ll_init(&pQ->link_lists[0]);
   ll_init(&pQ->link_lists[1]);
-  rb_init(&pQ->rb, 0x2); //0x100);
+  //rb_init(&pQ->rb, 0x2); // Small for testing
+  rb_init(&pQ->rb, 0x100);
   pQ->add_state = ADD_STATE_RB;
   pQ->rmv_state = RMV_STATE_RB;
   pQ->add_pending_count = 0;
@@ -78,7 +79,7 @@ uint64_t deinitMpscFifo(MpscFifo_t* pQ) {
   msgs_processed += ll_deinit(&pQ->link_lists[1]);
   msgs_processed += rb_deinit(&pQ->rb);
 
-  printf(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
+  DPF(LDR "deinitMpscFifo:-pQ=%p count=%u msgs_processed=%lu\n", ldr(), pQ, count, msgs_processed);
   return msgs_processed;
 }
 
@@ -97,11 +98,13 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
 #if USE_COUNT
           pQ->count += 1;
 #endif
+#ifndef NDEBUG
           pMsg->last_fifo_add_msg_pthread_id = pthread_self();
           pMsg->last_fifo_add_msg_fifo = pQ;
           pMsg->last_fifo_add_msg_state = ADD_STATE_RB;
           pMsg->last_fifo_add_msg_ll_idx = (uint64_t)-1;
           pMsg->last_fifo_add_msg_tick = gTick++;
+#endif
           pQ->add_pending_count -= 1;
           DPF(LDR "add:-pQ=%p ADD_STATE_RB added pMsg=%p count=%d add_pending_count=%d\n",
               ldr(), pQ, pMsg, pQ->count, pQ->add_pending_count);
@@ -134,11 +137,13 @@ void add(MpscFifo_t* pQ, Msg_t* pMsg) {
 #if USE_COUNT
         pQ->count += 1;
 #endif
+#ifndef NDEBUG
         pMsg->last_fifo_add_msg_pthread_id = pthread_self();
         pMsg->last_fifo_add_msg_fifo = pQ;
         pMsg->last_fifo_add_msg_state = ADD_STATE_LL;
         pMsg->last_fifo_add_msg_ll_idx = idx;
         pMsg->last_fifo_add_msg_tick = gTick++;
+#endif
         pQ->add_pending_count -= 1;
         DPF(LDR "add:-pQ=%p ADD_STATE_LL pMsg=%p count=%d add_pending_count=%d\n",
             ldr(), pQ, pMsg, pQ->count, pQ->add_pending_count);
@@ -164,10 +169,12 @@ Msg_t* rmv(MpscFifo_t* pQ) {
           pQ->count -= 1;
 #endif
           DPF(LDR "rmv:-pQ=%p RMV_STATE_RB successful pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+#ifndef NDEBUG
           pMsg->last_fifo_rmv_msg_pthread_id = pthread_self();
           pMsg->last_fifo_rmv_msg_fifo = pQ;
           pMsg->last_fifo_rmv_msg_state = RMV_STATE_RB;
           pMsg->last_fifo_rmv_msg_tick = gTick++;
+#endif
           return pMsg;
         }
         if (ADD_STATE_RB == __atomic_load_n(&pQ->add_state, __ATOMIC_ACQUIRE)) {
@@ -209,10 +216,12 @@ Msg_t* rmv(MpscFifo_t* pQ) {
           pQ->count -= 1;
 #endif
           DPF(LDR "rmv:-pQ=%p RMV_STATE_CHANGING_TO_RB pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+#ifndef NDEBUG
           pMsg->last_fifo_rmv_msg_pthread_id = pthread_self();
           pMsg->last_fifo_rmv_msg_fifo = pQ;
           pMsg->last_fifo_rmv_msg_state = RMV_STATE_CHANGING_TO_RB;
           pMsg->last_fifo_rmv_msg_tick = gTick++;
+#endif
           return pMsg;
         } else if (0 == (add_pending_count = pQ->add_pending_count)) {
           DPF(LDR "rmv: pQ=%p add_state == ADD_STATE_RB and LL is empty change to RMV_STATE_RB\n", ldr(), pQ);
@@ -235,10 +244,12 @@ Msg_t* rmv(MpscFifo_t* pQ) {
           pQ->count -= 1;
 #endif
           DPF(LDR "rmv:-pQ=%p RMV_STATE_LL pMsg=%p count=%d\n", ldr(), pQ, pMsg, pQ->count);
+#ifndef NDEBUG
           pMsg->last_fifo_rmv_msg_pthread_id = pthread_self();
           pMsg->last_fifo_rmv_msg_fifo = pQ;
           pMsg->last_fifo_rmv_msg_state = RMV_STATE_LL;
           pMsg->last_fifo_rmv_msg_tick = gTick++;
+#endif
           return pMsg;
         }
 
@@ -261,12 +272,15 @@ void ret_msg(Msg_t* pMsg) {
     //add(pMsg->pPoolFifo, pMsg);
   } else {
     if (pMsg == NULL) {
-      printf(LDR "ret:#No msg msg=%p\n", ldr(), pMsg);
+      printf(LDR "ret:#No msg 1 msg=%p\n", ldr(), pMsg);
       CRASH();
+      printf(LDR "ret:#No msg 2 msg=%p\n", ldr(), pMsg);
     } else {
-      printf(LDR "ret:#No pool msg=%p pool=%p arg1=%lu arg2=%lu\n",
+      printf(LDR "ret:#No pool 1 msg=%p pool=%p arg1=%lu arg2=%lu\n",
           ldr(), pMsg, pMsg->pPool, pMsg->arg1, pMsg->arg2);
       CRASH();
+      printf(LDR "ret:#No pool 2 msg=%p pool=%p arg1=%lu arg2=%lu\n",
+          ldr(), pMsg, pMsg->pPool, pMsg->arg1, pMsg->arg2);
     }
   }
 }
@@ -275,9 +289,11 @@ void ret_msg(Msg_t* pMsg) {
  * @see mpscfifo.h
  */
 void send_rsp_or_ret(Msg_t* msg, uint64_t arg1) {
+#ifndef NDEBUG 
   msg->last_pRspQ = msg->pRspQ;
   msg->last_arg1 = msg->arg1;
   msg->last_arg2 = msg->arg2;
+#endif
 
   if (msg->pRspQ != NULL) {
     MpscFifo_t* pRspQ = msg->pRspQ;

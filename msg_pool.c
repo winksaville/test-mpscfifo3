@@ -114,7 +114,7 @@ done:
 }
 
 uint64_t MsgPool_deinit(MsgPool_t* pool) {
-  printf(LDR "MsgPool_deinit:+pool=%p msgs=%p fifo=%p\n", ldr(), pool, pool->msgs, &pool->fifo);
+  DPF(LDR "MsgPool_deinit:+pool=%p msgs=%p fifo=%p\n", ldr(), pool, pool->msgs, &pool->fifo);
   uint64_t msgs_processed = 0;
 #if 0
   msgs_processed += pool->fifo.msgs_processed;
@@ -122,7 +122,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
 #else
   if (pool->msgs != NULL) {
     // Empty the pool
-    printf(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+    DPF(LDR "MsgPool_deinit: pool=%p pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
         ldr(), pool, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
     for (uint32_t i = 0; i < pool->msg_count; i++) {
       Msg_t* msg;
@@ -133,7 +133,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
       while ((msg = rmv(&pool->fifo)) == NULL) {
         if (!once) {
           once = true;
-          printf(LDR "MsgPool_deinit: waiting for %u\n", ldr(), i);
+          DPF(LDR "MsgPool_deinit: waiting for %u\n", ldr(), i);
         }
         sched_yield();
       }
@@ -142,7 +142,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
       DPF(LDR "MsgPool_deinit: removed %u msg=%p\n", ldr(), i, msg);
     }
 
-    printf(LDR "MsgPool_deinit: pool=%p deinitMpscFifo pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+    DPF(LDR "MsgPool_deinit: pool=%p deinitMpscFifo pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
         ldr(), pool, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
     msgs_processed = deinitMpscFifo(&pool->fifo);
 
@@ -157,7 +157,7 @@ uint64_t MsgPool_deinit(MsgPool_t* pool) {
     //pool->cells = NULL;
     pool->msg_count = 0;
   }
-  printf(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
+  DPF(LDR "MsgPool_deinit:-pool=%p msgs_processed=%lu pool->msg_count=%u get_msg_count=%u ret_msg_count=%u\n",
         ldr(), pool, msgs_processed, pool->msg_count, pool->get_msg_count, pool->ret_msg_count);
 #endif
   return msgs_processed;
@@ -170,8 +170,10 @@ Msg_t* MsgPool_get_msg(MsgPool_t* pool) {
     msg->pRspQ = NULL;
     msg->arg1 = 0;
     msg->arg2 = 0;
+#ifndef NDEBUG
     msg->last_MsgPool_get_msg_pthread_id = pthread_self();
     msg->last_MsgPool_get_msg_tick = gTick++;
+#endif
     pool->get_msg_count += 1;
     DPF(LDR "MsgPool_get_msg: pool=%p got msg=%p pool=%p get_msg_count=%d\n", ldr(), pool, msg, msg->pPool, pool->get_msg_count);
   }
@@ -182,8 +184,10 @@ Msg_t* MsgPool_get_msg(MsgPool_t* pool) {
 void MsgPool_ret_msg(MsgPool_t* pool, Msg_t* pMsg) {
   DPF(LDR "MsgPool_ret_msg:+pool=%p msg=%p\n", ldr(), pool, pMsg);
   if (pMsg != NULL) {
+#ifndef NDEBUG
     pMsg->last_MsgPool_ret_msg_pthread_id = pthread_self();
     pMsg->last_MsgPool_ret_msg_tick = gTick++;
+#endif
     add(&pool->fifo, pMsg);
     pool->ret_msg_count += 1;
     DPF(LDR "MsgPool_ret_msg: pool=%p got msg=%p pool=%p ret_msg_count=%d\n", ldr(), pool, pMsg, pMsg->pPool, pool->ret_msg_count);

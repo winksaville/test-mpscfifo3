@@ -42,7 +42,7 @@
  * @see mpscringbuff.h
  */
 MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
-  printf(LDR "rb_init:+pRb=%p size=%d\n", ldr(), pRb, size);
+  DPF(LDR "rb_init:+pRb=%p size=%d\n", ldr(), pRb, size);
   pRb->add_idx = 0;
   pRb->rmv_idx = 0;
   pRb->size = size;
@@ -62,7 +62,7 @@ MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
     printf(LDR "rb_init:-pRb=%p size=%d could not allocate ring_buffer return NULL\n", ldr(), pRb, size);
     return NULL;
   }
-  printf(LDR "rb_init:-pRb=%p size=%d\n", ldr(), pRb, size);
+  DPF(LDR "rb_init:-pRb=%p size=%d\n", ldr(), pRb, size);
   return pRb;
 }
 
@@ -70,9 +70,11 @@ MpscRingBuff_t* rb_init(MpscRingBuff_t* pRb, uint32_t size) {
  * @see mpscringbuff.h
  */
 uint64_t rb_deinit(MpscRingBuff_t* pRb) {
-  printf(LDR "rb_deinit:+pRb=%p\n", ldr(), pRb);
+  DPF(LDR "rb_deinit:+pRb=%p\n", ldr(), pRb);
   uint64_t msgs_processed = pRb->msgs_processed;
+#ifndef NDEBUG
   uint32_t count = pRb->count;
+#endif
   free(pRb->ring_buffer);
   pRb->ring_buffer = NULL;
   pRb->add_idx = 0;
@@ -81,7 +83,7 @@ uint64_t rb_deinit(MpscRingBuff_t* pRb) {
   pRb->mask = 0;
   pRb->count = 0;
   pRb->msgs_processed = 0;
-  printf(LDR "rb_deinit:-pRb=%p count=%d msgs_processed=%lu\n", ldr(), pRb, count, msgs_processed);
+  DPF(LDR "rb_deinit:-pRb=%p count=%d msgs_processed=%lu\n", ldr(), pRb, count, msgs_processed);
   return msgs_processed;
 }
 

@@ -29,6 +29,7 @@ typedef struct Msg_t {
   uint64_t arg1;
   uint64_t arg2;
 
+#if 0
   MpscFifo_t* last_pRspQ;
   uint64_t last_arg1;
   uint64_t last_arg2;
@@ -46,6 +47,7 @@ typedef struct Msg_t {
   MpscFifo_t* last_fifo_rmv_msg_fifo;
   uint64_t last_fifo_rmv_msg_state;
   uint64_t last_fifo_rmv_msg_tick;
+#endif
 
   uint8_t data[];
 } Msg_t;
